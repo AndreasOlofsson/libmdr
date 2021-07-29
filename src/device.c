@@ -852,7 +852,8 @@ int mdr_device_process_by_availability(mdr_device_t* device,
                         return -1;
                     }
 
-                    if (packet_matches(
+                    if (device->frame != NULL
+                        && packet_matches(
                                 packet,
                                 device->frame_expected_reply.packet_type,
                                 device->frame_expected_reply.extra))
