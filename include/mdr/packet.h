@@ -176,14 +176,14 @@ typedef enum PACKED
     // MDR_PACKET_AUDIO_SET_PARAM                  = 0xe8,
     // MDR_PACKET_AUDIO_NTFY_PARAM                 = 0xe9,
 
-    // MDR_PACKET_SYSTEM_GET_CAPABILITY            = 0xf0,
-    // MDR_PACKET_SYSTEM_RET_CAPABILITY            = 0xf1,
+    MDR_PACKET_SYSTEM_GET_CAPABILITY            = 0xf0,
+    MDR_PACKET_SYSTEM_RET_CAPABILITY            = 0xf1,
     // MDR_PACKET_SYSTEM_GET_STATUS                = 0xf2,
     // MDR_PACKET_SYSTEM_RET_STATUS                = 0xf3,
     // MDR_PACKET_SYSTEM_NTFY_STATUS               = 0xf5,
-    // MDR_PACKET_SYSTEM_GET_PARAM                 = 0xf6,
-    // MDR_PACKET_SYSTEM_RET_PARAM                 = 0xf7,
-    // MDR_PACKET_SYSTEM_SET_PARAM                 = 0xf8,
+    MDR_PACKET_SYSTEM_GET_PARAM                 = 0xf6,
+    MDR_PACKET_SYSTEM_RET_PARAM                 = 0xf7,
+    MDR_PACKET_SYSTEM_SET_PARAM                 = 0xf8,
     // MDR_PACKET_SYSTEM_NTFY_PARAM                = 0xf9,
     // MDR_PACKET_SYSTEM_GET_EXTENDED_PARAM        = 0xfa,
     // MDR_PACKET_SYSTEM_RET_EXTENDED_PARAM        = 0xfb,
@@ -200,6 +200,7 @@ mdr_packet_type_t;
 #include "mdr/packet/common_battery_level.h"
 #include "mdr/packet/eqebb.h"
 #include "mdr/packet/ncasm.h"
+#include "mdr/packet/system.h"
 
 typedef union PACKED
 {
@@ -214,13 +215,14 @@ typedef union PACKED
     mdr_packet_connect_ret_support_function_t connect_ret_support_function;
 
     // Common
-    mdr_packet_common_get_battery_level_t common_get_battery_level;
-    mdr_packet_common_ret_battery_level_t common_ret_battery_level;
+    mdr_packet_common_get_battery_level_t  common_get_battery_level;
+    mdr_packet_common_ret_battery_level_t  common_ret_battery_level;
     mdr_packet_common_ntfy_battery_level_t common_ntfy_battery_level;
 
     // EQEBB
     mdr_packet_eqebb_get_capability_t eqebb_get_capability;
     mdr_packet_eqebb_ret_capability_t eqebb_ret_capability;
+
     mdr_packet_eqebb_get_param_t eqebb_get_param;
     mdr_packet_eqebb_ret_param_t eqebb_ret_param;
     mdr_packet_eqebb_set_param_t eqebb_set_param;
@@ -230,6 +232,14 @@ typedef union PACKED
     mdr_packet_ncasm_ret_param_t ncasm_ret_param;
     mdr_packet_ncasm_set_param_t ncasm_set_param;
     mdr_packet_ncasm_ntfy_param_t ncasm_ntfy_param;
+
+    // System
+    mdr_packet_system_get_capability_t system_get_capability;
+    mdr_packet_system_ret_capability_t system_ret_capability;
+
+    mdr_packet_system_get_param_t system_get_param;
+    mdr_packet_system_ret_param_t system_ret_param;
+    mdr_packet_system_set_param_t system_set_param;
 }
 mdr_packet_data_t;
 
