@@ -7,5 +7,6 @@
 #define MDR_E_NO_ACK            -4
 #define MDR_E_NO_REPLY          -5
 #define MDR_E_CLOSED            -6
+#define MDR_E_NOT_SUPPORTED     -7
 
 #endif /* __MDR_ERRORS_H__ */

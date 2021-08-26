@@ -13,7 +13,7 @@ OBJECTS=$(patsubst $(SOURCE_DIR)/%.c,$(BUILD_DIR)/%.o,$(SOURCES))
 TARGET=libmdr.a
 TEST_TARGET=tests
 
-CFLAGS+=-g -Wall
+CFLAGS+=-g -Wall -Wpedantic
 
 all: $(TARGET)
 
@@ -40,4 +40,6 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c $(HEADER_DIR)/mdr/%.h
 $(BUILD_DIR)/test%.o: $(SOURCE_DIR)/test%.c
 	mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -I $(HEADER_DIR) -o $@ $<
+
+.PHONY: all clean test run_test
 

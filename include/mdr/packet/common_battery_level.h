@@ -20,8 +20,8 @@
  * along with libmdr. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __MDR_PACKET_BATTERY_H__
-#define __MDR_PACKET_BATTERY_H__
+#ifndef __MDR_PACKET_COMMON_BATTERY_LEVEL_H__
+#define __MDR_PACKET_COMMON_BATTERY_LEVEL_H__
 
 #include <stdint.h>
 #define PACKED __attribute__((__packed__))
@@ -98,4 +98,4 @@ typedef struct PACKED mdr_packet_common_ntfy_battery_level
 }
 mdr_packet_common_ntfy_battery_level_t;
 
-#endif /* __MDR_PACKET_BATTERY_H__ */
+#endif /* __MDR_PACKET_COMMON_BATTERY_LEVEL_H__ */

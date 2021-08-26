@@ -22,1813 +22,1936 @@
 
 #include "mdr/device.h"
 
+#include <errno.h>
 #include "mdr/errors.h"
 
-#include <stdbool.h>
-#include <time.h>
-#include <errno.h>
+typedef struct subscription subscription_t;
 
-/*
- * Time to wait before re-sending an un-ACKd packet.
- * In seconds and micro-seconds.
- */
-// 0.5 s
-static const struct timespec packet_ack_timeout = {
-    .tv_sec = 0,
-    .tv_nsec = 500 * 1000 * 1000,
-};
-
-/*
- * Number of times to try sending a packet before giving up.
- */
-#define MDR_PACKET_MAX_TRIES 3
-
-/*
- * Time to wait after a request being ACKd to consider the reply lost.
- * In seconds and micro-seconds.
- */
-// 1.5 s
-static struct timespec packet_reply_timeout = {
-    .tv_sec = 1,
-    .tv_nsec = 500 * 1000 * 1000,
-};
-
-typedef struct
+struct subscription
 {
-    mdr_device_result_callback result_cb;
-    mdr_device_error_callback error_cb;
+    void (*user_result_callback)();
     void* user_data;
-}
-callbacks_t;
 
-typedef struct
-{
-    bool only_ack;
-    mdr_packet_type_t packet_type;
-    uint8_t extra;
-}
-reply_specifier_t;
+    void* handle;
 
-typedef struct queued_frame queued_frame_t;
-
-struct queued_frame
-{
-    mdr_frame_t* frame;
-    callbacks_t* callbacks;
-    reply_specifier_t expected_reply;
-    queued_frame_t* next;
-};
-
-typedef struct notifier notifier_t;
-
-struct notifier
-{
-    mdr_packet_type_t packet_type;
-    uint8_t extra;
-    callbacks_t* callbacks;
-    notifier_t* next;
+    subscription_t* next;
 };
 
 struct mdr_device
 {
-    mdr_connection_t* connection;
+    mdr_packetconn_t* conn;
 
-    uint8_t next_sequence_id;
+    subscription_t* subscriptions, *subscriptions_tail;
 
-    // The frame currently awaiting an ACK or reply.
-    mdr_frame_t* frame;
-    struct timespec frame_time;
-    int frame_attempts;
-    bool frame_acked;
-    callbacks_t* frame_callbacks;
-    reply_specifier_t frame_expected_reply;
-
-    queued_frame_t* frame_queue, *frame_queue_tail;
-
-    notifier_t* notifiers[0x100];
+    mdr_device_supported_functions_t supported_functions;
 };
 
-// timespec helpers
-static struct timespec timespec_add(struct timespec, struct timespec);
-static struct timespec timespec_sub(struct timespec, struct timespec);
-static int timespec_compare(struct timespec, struct timespec);
-
-mdr_device_t* mdr_device_new_from_connection(mdr_connection_t* connection)
+mdr_device_t* mdr_device_new_from_packetconn(mdr_packetconn_t* conn)
 {
     mdr_device_t* device = malloc(sizeof(mdr_device_t));
+
     if (device == NULL) return NULL;
 
-    device->connection = connection;
-    device->next_sequence_id = 0;
+    device->conn = conn;
 
-    device->frame = NULL;
-    device->frame_queue = NULL;
-    device->frame_queue_tail = NULL;
+    device->subscriptions = device->subscriptions_tail = NULL;
 
-    memset(device->notifiers, 0, sizeof(notifier_t*) * 0x100);
+    memset(&device->supported_functions, 0,
+            sizeof(mdr_device_supported_functions_t));
 
     return device;
 }
 
 mdr_device_t* mdr_device_new_from_sock(int sock)
 {
-    mdr_connection_t* connection = mdr_connection_new(sock);
-    if (connection == NULL) return NULL;
+    mdr_packetconn_t* conn = mdr_packetconn_new_from_sock(sock);
 
-    mdr_device_t* device = mdr_device_new_from_connection(connection);
+    if (conn == NULL) return NULL;
+
+    mdr_device_t* device = mdr_device_new_from_packetconn(conn);
+
     if (device == NULL)
     {
-        mdr_connection_free(connection);
+        mdr_packetconn_free(conn);
         return NULL;
     }
+
+    device->conn = conn;
 
     return device;
 }
 
-static void mdr_device_cancel_requests(mdr_device_t* device)
-{
-    if (device->frame != NULL)
-    {
-        callbacks_t* callbacks = device->frame_callbacks;
-
-        if (callbacks->error_cb != NULL)
-        {
-            errno = MDR_E_CLOSED;
-            callbacks->error_cb(callbacks->user_data);
-        }
-
-        free(device->frame_callbacks);
-        free(device->frame);
-    }
-
-    queued_frame_t* queued_frame = device->frame_queue, *next;
-    for (; queued_frame != NULL; queued_frame = next)
-    {
-        next = queued_frame->next;
-
-        callbacks_t* callbacks = queued_frame->callbacks;
-
-        if (callbacks->error_cb != NULL)
-        {
-            errno = MDR_E_CLOSED;
-            callbacks->error_cb(callbacks->user_data);
-        }
-
-        free(callbacks);
-        free(queued_frame->frame);
-        free(queued_frame);
-    }
-
-    for (int notifier_type = 0; notifier_type < 0x100; notifier_type++)
-    {
-        notifier_t* notifier = device->notifiers[notifier_type], *next;
-
-        for (; notifier != NULL; notifier = next)
-        {
-            next = notifier->next;
-
-            free(notifier->callbacks);
-            free(notifier);
-        }
-    }
-}
-
 void mdr_device_free(mdr_device_t* device)
 {
-    mdr_device_cancel_requests(device);
+    subscription_t* next;
+    for (subscription_t* subscription = device->subscriptions;
+         subscription != NULL;
+         subscription = next)
+    {
+        mdr_packetconn_remove_subscription(
+                device->conn,
+                subscription->handle);
+        next = subscription->next;
+        free(subscription);
+    }
 
-    mdr_connection_free(device->connection);
+    mdr_packetconn_free(device->conn);
     free(device);
 }
 
 void mdr_device_close(mdr_device_t* device)
 {
-    mdr_device_cancel_requests(device);
+    subscription_t* next;
+    for (subscription_t* subscription = device->subscriptions;
+         subscription != NULL;
+         subscription = next)
+    {
+        mdr_packetconn_remove_subscription(
+                device->conn,
+                subscription->handle);
+        next = subscription->next;
+        free(subscription);
+    }
 
-    mdr_connection_close(device->connection);
+    mdr_packetconn_close(device->conn);
     free(device);
 }
 
-bool mdr_device_waiting_read(mdr_device_t* device)
+mdr_poll_info mdr_device_poll_info(mdr_device_t* device)
 {
-    return mdr_connection_waiting_read(device->connection);
-}
-
-bool mdr_device_waiting_write(mdr_device_t* device)
-{
-    return mdr_connection_waiting_write(device->connection)
-        || device->frame != NULL;
-}
-
-int mdr_device_wait_timeout(mdr_device_t* device)
-{
-    if (device->frame == NULL) return -1;
-
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-
-    struct timespec timeout;
-
-    if (device->frame_acked)
-    {
-        timeout = timespec_add(device->frame_time, packet_reply_timeout);
-    }
-    else
-    {
-        timeout = timespec_add(device->frame_time, packet_ack_timeout);
-    }
-
-    struct timespec diff = timespec_sub(timeout, now);
-    time_t timeout_ms = diff.tv_sec * 1000 + diff.tv_nsec / 1000000;
-
-    if (timeout_ms <= 0) return 0;
-    else return timeout_ms;
-}
-
-static void* packet_get_data(mdr_packet_t* packet)
-{
-    switch (packet->type)
-    {
-        case MDR_PACKET_CONNECT_RET_PROTOCOL_INFO:
-        {
-            uint16_t* result = malloc(sizeof(uint16_t));
-            if (result == NULL) return NULL;
-
-            uint8_t high = packet->data.connect_ret_protocol_info.version_high;
-            uint8_t low = packet->data.connect_ret_protocol_info.version_low;
-            *result = ((uint16_t) high) << 8 | low;
-            return result;
-        }
-
-        case MDR_PACKET_CONNECT_RET_DEVICE_INFO:
-            switch (packet->data.connect_ret_device_info.inquired_type)
-            {
-                case MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_MODEL_NAME:
-                {
-                    mdr_packet_device_info_string_t* result =
-                        malloc(sizeof(mdr_packet_device_info_string_t));
-                    if (result == NULL) return NULL;
-
-                    uint8_t* string = malloc(packet->data
-                            .connect_ret_device_info.model_name.len + 1);
-                    if (string == NULL)
-                    {
-                        free(result);
-                        return NULL;
-                    }
-
-                    memcpy(string,
-                            packet->data.connect_ret_device_info
-                                .model_name.string,
-                            packet->data.connect_ret_device_info
-                                .model_name.len);
-                    string[packet->data.connect_ret_device_info
-                        .model_name.len] = 0;
-
-                    result->len = packet->data.connect_ret_device_info
-                                .model_name.len;
-                    result->string = string;
-
-                    return result;
-                }
-
-                case MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_FW_VERSION:
-                {
-                    mdr_packet_device_info_string_t* result =
-                        malloc(sizeof(mdr_packet_device_info_string_t));
-                    if (result == NULL) return NULL;
-
-                    uint8_t* string = malloc(packet->data
-                            .connect_ret_device_info.fw_version.len + 1);
-                    if (string == NULL)
-                    {
-                        free(result);
-                        return NULL;
-                    }
-
-                    memcpy(string,
-                            packet->data.connect_ret_device_info
-                                .fw_version.string,
-                            packet->data.connect_ret_device_info
-                                .fw_version.len);
-                    string[packet->data.connect_ret_device_info
-                        .fw_version.len] = 0;
-
-                    result->len = packet->data.connect_ret_device_info
-                                .fw_version.len;
-                    result->string = string;
-
-                    return result;
-                }
-
-                case MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_SERIES_AND_COLOR:
-                {
-                    size_t len = sizeof(
-                            mdr_packet_device_info_series_and_color_t);
-                    mdr_packet_device_info_series_and_color_t* result =
-                        malloc(len);
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.connect_ret_device_info
-                               .series_and_color,
-                           len);
-
-                    return result;
-                }
-
-                case MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_INSTRUCTION_GUIDE:
-                {
-                    mdr_packet_device_info_instruction_guide_t* result =
-                        malloc(sizeof(
-                            mdr_packet_device_info_instruction_guide_t));
-                    if (result == NULL) return NULL;
-
-                    mdr_packet_device_info_guidance_category_t* categories =
-                        malloc(packet->data
-                            .connect_ret_device_info.instruction_guide.count);
-                    if (categories == NULL)
-                    {
-                        free(result);
-                        return NULL;
-                    }
-
-                    memcpy(categories,
-                            packet->data.connect_ret_device_info
-                                .instruction_guide.guidance_categories,
-                            packet->data.connect_ret_device_info
-                                .instruction_guide.count);
-
-                    result->count = packet->data.connect_ret_device_info
-                                .instruction_guide.count;
-                    result->guidance_categories = categories;
-
-                    return result;
-                }
-            }
-
-        case MDR_PACKET_CONNECT_RET_SUPPORT_FUNCTION:
-        {
-            mdr_packet_connect_ret_support_function_t* result =
-                malloc(sizeof(mdr_packet_connect_ret_support_function_t));
-            if (result == NULL) return NULL;
-
-            mdr_packet_support_function_type_t* function_types =
-                malloc(packet->data.connect_ret_support_function
-                        .num_function_types);
-            if (function_types == NULL)
-            {
-                free(result);
-                return NULL;
-            }
-
-            memcpy(function_types,
-                   packet->data.connect_ret_support_function.function_types,
-                   packet->data.connect_ret_support_function
-                       .num_function_types);
-
-            result->fixed_value = 0;
-            result->num_function_types =
-                packet->data.connect_ret_support_function
-                        .num_function_types;
-            result->function_types = function_types;
-
-            return result;
-        }
-
-        case MDR_PACKET_COMMON_RET_BATTERY_LEVEL:
-            switch (packet->data.common_ret_battery_level.inquired_type)
-            {
-                case MDR_PACKET_BATTERY_INQUIRED_TYPE_BATTERY:
-                {
-                    mdr_packet_battery_status_t* result =
-                        malloc(sizeof(mdr_packet_battery_status_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.common_ret_battery_level
-                               .battery,
-                           sizeof(mdr_packet_battery_status_t));
-
-                    return result;
-                }
-
-                case MDR_PACKET_BATTERY_INQUIRED_TYPE_LEFT_RIGHT_BATTERY:
-                {
-                    mdr_packet_battery_status_left_right_t* result =
-                        malloc(sizeof(mdr_packet_battery_status_left_right_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.common_ret_battery_level
-                               .left_right_battery,
-                           sizeof(mdr_packet_battery_status_left_right_t));
-
-                    return result;
-                }
-
-                case MDR_PACKET_BATTERY_INQUIRED_TYPE_CRADLE_BATTERY:
-                {
-                    mdr_packet_battery_status_t* result =
-                        malloc(sizeof(mdr_packet_battery_status_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.common_ret_battery_level
-                               .cradle_battery,
-                           sizeof(mdr_packet_battery_status_t));
-
-                    return result;
-                }
-            }
-
-        case MDR_PACKET_COMMON_NTFY_BATTERY_LEVEL:
-            switch (packet->data.common_ntfy_battery_level.inquired_type)
-            {
-                case MDR_PACKET_BATTERY_INQUIRED_TYPE_BATTERY:
-                {
-                    mdr_packet_battery_status_t* result =
-                        malloc(sizeof(mdr_packet_battery_status_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.common_ntfy_battery_level
-                               .battery,
-                           sizeof(mdr_packet_battery_status_t));
-
-                    return result;
-                }
-
-                case MDR_PACKET_BATTERY_INQUIRED_TYPE_LEFT_RIGHT_BATTERY:
-                {
-                    mdr_packet_battery_status_left_right_t* result =
-                        malloc(sizeof(mdr_packet_battery_status_left_right_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.common_ntfy_battery_level
-                               .left_right_battery,
-                           sizeof(mdr_packet_battery_status_left_right_t));
-
-                    return result;
-                }
-
-                case MDR_PACKET_BATTERY_INQUIRED_TYPE_CRADLE_BATTERY:
-                {
-                    mdr_packet_battery_status_t* result =
-                        malloc(sizeof(mdr_packet_battery_status_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.common_ntfy_battery_level
-                               .cradle_battery,
-                           sizeof(mdr_packet_battery_status_t));
-
-                    return result;
-                }
-            }
-
-        case MDR_PACKET_EQEBB_RET_CAPABILITY:
-            switch (packet->data.eqebb_ret_param.inquired_type)
-            {
-                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ:
-                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE:
-                {
-                    mdr_packet_eqebb_capability_eq_t* result =
-                        malloc(sizeof(mdr_packet_eqebb_capability_eq_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.eqebb_ret_capability.eq,
-                           sizeof(mdr_packet_eqebb_capability_eq_t));
-
-                    result->presets = malloc(result->num_presets * sizeof(
-                            mdr_packet_eqebb_capability_eq_preset_name_t));
-                    if (result->presets == NULL)
-                    {
-                        free(result);
-                        return NULL;
-                    }
-
-                    for (int i = 0; i < result->num_presets; i++)
-                    {
-                        memcpy(&result->presets[i],
-                           &packet->data.eqebb_ret_capability.eq.presets[i],
-                           sizeof(
-                               mdr_packet_eqebb_capability_eq_preset_name_t));
-
-                        result->presets[i].name =
-                                malloc(result->presets[i].name_len + 1);
-                        if (result->presets[i].name == NULL)
-                        {
-                            for (int j = 0; j < i; j++)
-                            {
-                                free(result->presets[j].name);
-                                free(result->presets);
-                                free(result);
-                                return NULL;
-                            }
-                        }
-
-                        memcpy(result->presets[i].name,
-                               packet->data.eqebb_ret_capability.eq
-                                   .presets[i].name,
-                               result->presets[i].name_len);
-                        result->presets[i].name[result->presets[i].name_len]
-                            = 0;
-                    }
-
-                    return result;
-                }
-
-                case MDR_PACKET_EQEBB_INQUIRED_TYPE_EBB:
-                {
-                    mdr_packet_eqebb_capability_ebb_t* result =
-                        malloc(sizeof(mdr_packet_eqebb_capability_ebb_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.eqebb_ret_capability.ebb,
-                           sizeof(mdr_packet_eqebb_capability_ebb_t));
-
-                    return result;
-                }
-            }
-
-        case MDR_PACKET_EQEBB_RET_PARAM:
-            switch (packet->data.eqebb_ret_param.inquired_type)
-            {
-                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ:
-                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE:
-                {
-                    mdr_packet_eqebb_param_eq_t* result =
-                        malloc(sizeof(mdr_packet_eqebb_param_eq_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.eqebb_ret_param.eq,
-                           sizeof(mdr_packet_eqebb_param_eq_t));
-                    
-                    return result;
-                }
-
-                case MDR_PACKET_EQEBB_INQUIRED_TYPE_EBB:
-                {
-                    uint8_t* result = malloc(sizeof(uint8_t));
-                    if (result == NULL) return NULL;
-
-                    *result = packet->data.eqebb_ret_param.ebb.level;
-                    
-                    return result;
-                }
-            }
-
-        case MDR_PACKET_NCASM_RET_PARAM:
-            switch (packet->data.ncasm_ret_param.inquired_type)
-            {
-                case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING:
-                {
-                    mdr_packet_ncasm_param_noise_cancelling_t* result =
-                        malloc(sizeof(mdr_packet_ncasm_param_noise_cancelling_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.ncasm_ret_param.noise_cancelling,
-                           sizeof(mdr_packet_ncasm_param_noise_cancelling_t));
-
-                    return result;
-                }
-                break;
-
-                case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
-                {
-                    mdr_packet_ncasm_param_asm_t* result =
-                        malloc(sizeof(mdr_packet_ncasm_param_asm_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.ncasm_ret_param.ambient_sound_mode,
-                           sizeof(mdr_packet_ncasm_param_asm_t));
-
-                    return result;
-                }
-                break;
-
-                case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM:
-                {
-                    mdr_packet_ncasm_param_noise_cancelling_asm_t* result =
-                        malloc(sizeof(mdr_packet_ncasm_param_noise_cancelling_asm_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.ncasm_ret_param.noise_cancelling_asm,
-                           sizeof(mdr_packet_ncasm_param_noise_cancelling_asm_t));
-
-                    return result;
-                }
-                break;
-            }
-
-        case MDR_PACKET_NCASM_NTFY_PARAM:
-            switch (packet->data.ncasm_ntfy_param.inquired_type)
-            {
-                case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING:
-                {
-                    mdr_packet_ncasm_param_noise_cancelling_t* result =
-                        malloc(sizeof(mdr_packet_ncasm_param_noise_cancelling_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.ncasm_ntfy_param.noise_cancelling,
-                           sizeof(mdr_packet_ncasm_param_noise_cancelling_t));
-
-                    return result;
-                }
-                break;
-
-                case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
-                {
-                    mdr_packet_ncasm_param_asm_t* result =
-                        malloc(sizeof(mdr_packet_ncasm_param_asm_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.ncasm_ntfy_param.ambient_sound_mode,
-                           sizeof(mdr_packet_ncasm_param_asm_t));
-
-                    return result;
-                }
-                break;
-
-                case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM:
-                {
-                    mdr_packet_ncasm_param_noise_cancelling_asm_t* result =
-                        malloc(sizeof(mdr_packet_ncasm_param_noise_cancelling_asm_t));
-                    if (result == NULL) return NULL;
-
-                    memcpy(result,
-                           &packet->data.ncasm_ntfy_param.noise_cancelling_asm,
-                           sizeof(mdr_packet_ncasm_param_noise_cancelling_asm_t));
-
-                    return result;
-                }
-                break;
-            }
-
-        default:
-            errno = MDR_E_UNEXPECTED_PACKET;
-            return NULL;
-    }
-}
-
-static void mdr_device_dequeue_frame(mdr_device_t* device, struct timespec now)
-{
-    if (device->frame_queue != NULL)
-    {
-        queued_frame_t* queued_frame = device->frame_queue;
-
-        device->frame_queue = queued_frame->next;
-        if (device->frame_queue == NULL)
-        {
-            device->frame_queue_tail = NULL;
-        }
-
-        device->frame = queued_frame->frame;
-        device->frame_callbacks = queued_frame->callbacks;
-        device->frame_expected_reply =queued_frame->expected_reply;
-        device->frame_attempts = 0;
-        device->frame_time = now;
-        device->frame_acked = false;
-
-        device->frame->sequence_id = device->next_sequence_id;
-        *mdr_frame_checksum(device->frame) =
-            mdr_frame_compute_checksum(device->frame);
-        device->next_sequence_id = !device->next_sequence_id;
-    }
-}
-
-static bool packet_matches(mdr_packet_t* packet,
-                           mdr_packet_type_t type,
-                           uint8_t extra)
-{
-    if (packet->type != type) return false;
-
-    switch (type)
-    {
-        case MDR_PACKET_CONNECT_RET_PROTOCOL_INFO:
-        case MDR_PACKET_CONNECT_RET_SUPPORT_FUNCTION:
-            return true;
-
-        case MDR_PACKET_CONNECT_RET_DEVICE_INFO:
-            return extra == packet->data.connect_ret_device_info.inquired_type;
-
-        case MDR_PACKET_COMMON_RET_BATTERY_LEVEL:
-            return extra == packet->data.common_ret_battery_level.inquired_type;
-
-        case MDR_PACKET_COMMON_NTFY_BATTERY_LEVEL:
-            return extra == packet->data.common_ntfy_battery_level
-                .inquired_type;
-
-        case MDR_PACKET_EQEBB_RET_CAPABILITY:
-            return extra == packet->data.eqebb_ret_capability.inquired_type;
-
-        case MDR_PACKET_EQEBB_RET_PARAM:
-            return extra == packet->data.eqebb_ret_param.inquired_type;
-
-        case MDR_PACKET_NCASM_RET_PARAM:
-        case MDR_PACKET_NCASM_NTFY_PARAM:
-            return extra == packet->data.ncasm_ret_param.inquired_type;
-
-        // Get/set packets are never expected replies.
-        case MDR_PACKET_CONNECT_GET_PROTOCOL_INFO:
-        case MDR_PACKET_CONNECT_GET_DEVICE_INFO:
-        case MDR_PACKET_CONNECT_GET_SUPPORT_FUNCTION:
-        case MDR_PACKET_COMMON_GET_BATTERY_LEVEL:
-        case MDR_PACKET_EQEBB_GET_CAPABILITY:
-        case MDR_PACKET_EQEBB_GET_PARAM:
-        case MDR_PACKET_EQEBB_SET_PARAM:
-        case MDR_PACKET_NCASM_GET_PARAM:
-        case MDR_PACKET_NCASM_SET_PARAM:
-            return false;
-    }
-
-    return false;
+    return mdr_packetconn_poll_info(device->conn);
 }
 
 int mdr_device_process(mdr_device_t* device)
 {
-    return mdr_device_process_by_availability(device, true, true);
+    return mdr_packetconn_process(device->conn);
 }
 
 int mdr_device_process_by_availability(mdr_device_t* device,
                                        bool readable,
                                        bool writable)
 {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
+    return mdr_packetconn_process_by_availability(device->conn,
+                                                  readable,
+                                                  writable);
+}
 
-    if (readable)
-    {
-        mdr_frame_t* frame = mdr_connection_read_frame(device->connection);
-        if (frame == NULL)
-        {
-            if (!(errno == EAGAIN || errno == EWOULDBLOCK))
-            {
-                return -1;
-            }
-        }
-        else
-        {
-            if (frame->data_type == MDR_FRAME_DATA_TYPE_ACK)
-            {
-                if (device->frame != NULL)
-                {
-                    if (frame->sequence_id == !device->frame->sequence_id)
-                    {
-                        // Frame has been ACKd
-                        clock_gettime(CLOCK_MONOTONIC,
-                                      &device->frame_time);
-
-                        device->frame_acked = true;
-                        if (device->frame_expected_reply.only_ack)
-                        {
-                            callbacks_t* callbacks = device->frame_callbacks;
-
-                            if (callbacks->result_cb != NULL)
-                            {
-                                callbacks->result_cb(NULL,
-                                                     callbacks->user_data);
-                            }
-
-                            free(callbacks);
-                            free(device->frame);
-                            device->frame = NULL;
-
-                            mdr_device_dequeue_frame(device, now);
-                        }
-                    }
-#ifdef __DEBUG
-                    else
-                    {
-                        fprintf(stderr,
-                                "libmdr: "
-                                "Received ACK with incorrect sequenceID\n");
-                    }
-#endif
-                }
-
-                free(frame);
-            }
-            else if (frame->data_type == MDR_FRAME_DATA_TYPE_DATA_MDR)
-            {
-                mdr_frame_t* ack_frame = malloc(MDR_FRAME_EMPTY_LEN);
-                if (ack_frame == NULL)
-                {
-                    return -1;
-                }
-
-                ack_frame->data_type = MDR_FRAME_DATA_TYPE_ACK;
-                ack_frame->sequence_id = !frame->sequence_id;
-                ack_frame->payload_length = 0;
-                *mdr_frame_checksum(ack_frame) =
-                    mdr_frame_compute_checksum(ack_frame);
-
-                if (mdr_connection_write_frame(device->connection,
-                                               ack_frame) < 0)
-                {
-                    free(frame);
-                    if (!(errno == EAGAIN || errno == EWOULDBLOCK))
-                    {
-                        return -1;
-                    }
-
-                }
-                else
-                {
-                    mdr_packet_t* packet = mdr_packet_from_frame(frame);
-                    free(frame);
-                    if (packet == NULL)
-                    {
-                        return -1;
-                    }
-
-                    if (device->frame != NULL
-                        && packet_matches(
-                                packet,
-                                device->frame_expected_reply.packet_type,
-                                device->frame_expected_reply.extra))
-                    {
-                        errno = 0;
-                        void* packet_data = packet_get_data(packet);
-                        if (errno != 0)
-                        {
-                            mdr_packet_free(packet);
-                            return -1;
-                        }
-
-                        callbacks_t* callbacks = device->frame_callbacks;
-
-                        if (callbacks->result_cb != NULL)
-                        {
-                            callbacks->result_cb(packet_data,
-                                                 callbacks->user_data);
-                        }
-
-                        free(callbacks);
-                        free(device->frame);
-                        device->frame = NULL;
-
-                        mdr_device_dequeue_frame(device, now);
-                    }
-                    else
-                    {
-                        bool matched_notification = false;
-                        void* packet_data;
-
-                        notifier_t* notifier = device->notifiers[packet->type];
-
-                        for (; notifier != NULL; notifier = notifier->next)
-                        {
-                            if (packet_matches(packet,
-                                               notifier->packet_type,
-                                               notifier->extra))
-                            {
-                                if (!matched_notification)
-                                {
-                                    packet_data = packet_get_data(packet);
-                                }
-                                matched_notification = true;
-
-                                callbacks_t* callbacks = notifier->callbacks;
-
-                                if (callbacks->result_cb != NULL)
-                                {
-                                    callbacks->result_cb(
-                                            packet_data,
-                                            callbacks->user_data);
-                                }
-                            }
-                        }
-
-#ifdef __DEBUG
-                        if (!matched_notification)
-                        {
-                            fprintf(stderr,
-                                    "libmdr: "
-                                    "Received unexpected reply/notify packet "
-                                    "(0x%02x).\n",
-                                    packet->type);
-                        }
-#endif
-                    }
-
-                    mdr_packet_free(packet);
-                }
-            }
-            else
-            {
-                // Unkown packet type
-                free(frame);
-            }
-        }
-    }
-
-    if (writable)
-    {
-        if (mdr_connection_flush_write(device->connection) < 0)
-        {
-            if (!(errno == EAGAIN || errno == EWOULDBLOCK))
-            {
-                return -1;
-            }
-        }
-    }
-
-    // Call error on timeout, or send queued frame.
-    if (device->frame != NULL)
-    {
-        if (device->frame_acked)
-        {
-            struct timespec timeout = timespec_add(device->frame_time,
-                                                   packet_reply_timeout);
-
-            if (timespec_compare(now, timeout) > 0)
-            {
-                // Reply timed out, call error callback and dequeue next frame.
-                callbacks_t* callbacks = device->frame_callbacks;
-
-                if (callbacks->error_cb != NULL)
-                {
-                    errno = MDR_E_NO_REPLY;
-                    callbacks->error_cb(callbacks->user_data);
-                }
-
-                free(callbacks);
-                free(device->frame);
-                device->frame = NULL;
-
-                mdr_device_dequeue_frame(device, now);
-            }
-        }
-
-        if (!device->frame_acked) {
-            struct timespec timeout = timespec_add(device->frame_time,
-                                                   packet_ack_timeout);
-
-            if (device->frame_attempts == 0
-                    || timespec_compare(now, timeout) > 0)
-            {
-                if (device->frame_attempts >= MDR_PACKET_MAX_TRIES)
-                {
-                    // Frame timed out,
-                    // call error callback and dequeue next frame.
-                    callbacks_t* callbacks = device->frame_callbacks;
-
-                    if (callbacks->error_cb != NULL)
-                    {
-                        errno = MDR_E_NO_ACK;;
-                        callbacks->error_cb(callbacks->user_data);
-                    }
-
-                    free(callbacks);
-                    free(device->frame);
-                    device->frame = NULL;
-
-                    device->next_sequence_id = !device->next_sequence_id;
-
-                    mdr_device_dequeue_frame(device, now);
-                }
-                else if (writable)
-                {
-                    mdr_frame_t* send_frame = mdr_frame_dup(device->frame);
-                    if (send_frame == NULL)
-                    {
-                        return -1;
-                    }
-                    if (mdr_connection_write_frame(device->connection,
-                                                   send_frame) < 0)
-                    {
-                        if (!(errno == EAGAIN || errno == EWOULDBLOCK))
-                        {
-                            return -1;
-                        }
-                    }
-                    else
-                    {
-                        // Resend complete, inc attempts and reset frame time.
-                        device->frame_attempts++;
-                        device->frame_time = now;
-                    }
-                }
-            }
-        }
-    }
-
-    return 0;
+mdr_device_supported_functions_t
+        mdr_device_get_supported_functions(mdr_device_t* device)
+{
+    return device->supported_functions;
 }
 
 typedef struct
 {
-    bool got_result;
-    void* result;
-    int error;
-} mdr_device_wait_for_result_user_data_t;
+    mdr_device_t* device;
+    void (*user_result_callback)();
+    void (*user_error_callback)(void* user_data);
+    void* user_data;
+} callback_data_t;
 
-static void mdr_device_wait_for_result_return_callback(void* data,
-                                                       void* user_data)
+static void success_callback_passthrough(mdr_packet_t* packet,
+                                         void* user_data)
 {
-    ((mdr_device_wait_for_result_user_data_t*) user_data)->result = data;
-    ((mdr_device_wait_for_result_user_data_t*) user_data)->got_result = true;
-}
+    callback_data_t* callback_data = user_data;
 
-static void mdr_device_wait_for_result_error_callback(void* user_data)
-{
-    ((mdr_device_wait_for_result_user_data_t*) user_data)->error = errno;
-}
-
-void* mdr_device_wait_for_result(mdr_device_t* device, void* handle)
-{
-    if (handle == NULL) return NULL;
-
-    mdr_device_wait_for_result_user_data_t wait_result;
-    wait_result.got_result = false;
-    wait_result.result = NULL;
-    wait_result.error = 0;
-
-    callbacks_t* callbacks = (callbacks_t*) handle;
-
-    mdr_device_result_callback original_result_cb = callbacks->result_cb;
-    mdr_device_error_callback original_error_cb = callbacks->error_cb;
-    void* original_user_data = callbacks->user_data;
-
-    callbacks->result_cb = mdr_device_wait_for_result_return_callback;
-    callbacks->error_cb = mdr_device_wait_for_result_error_callback;
-    callbacks->user_data = &wait_result;
-
-    while (!wait_result.got_result && wait_result.error == 0)
+    if (callback_data->user_result_callback != NULL)
     {
-        if (mdr_device_process(device) < 0)
-        {
-            callbacks->result_cb = original_result_cb;
-            callbacks->error_cb = original_error_cb;
-            callbacks->user_data = original_user_data;
-
-            return NULL;
-        }
+        callback_data->user_result_callback(callback_data->user_data);
     }
 
-    if (wait_result.got_result)
+    free(user_data);
+}
+
+static void error_callback_passthrough(void* user_data)
+{
+    callback_data_t* callback_data = user_data;
+
+    if (callback_data->user_error_callback != NULL)
     {
-        return wait_result.result;
+        callback_data->user_error_callback(callback_data->user_data);
+    }
+
+    free(user_data);
+}
+
+static void mdr_device_make_request(
+        mdr_device_t* device,
+        mdr_packet_t* request_packet,
+        mdr_packetconn_reply_specifier_t reply_specifier,
+        void (*device_result_callback)(mdr_packet_t*, void*),
+        void (*user_result_callback)(),
+        void (*user_error_callback)(void*),
+        void* user_data)
+{
+    callback_data_t* callback_data = malloc(sizeof(callback_data_t));
+    if (callback_data == NULL)
+    {
+        if (user_error_callback != NULL) user_error_callback(user_data);
+        return;
+    }
+
+    callback_data->device = device;
+    callback_data->user_result_callback = user_result_callback;
+    callback_data->user_error_callback = user_error_callback;
+    callback_data->user_data = user_data;
+
+    mdr_packetconn_make_request(
+            device->conn,
+            request_packet,
+            reply_specifier,
+            device_result_callback,
+            error_callback_passthrough,
+            callback_data);
+}
+
+static void* mdr_device_add_subscription(
+        mdr_device_t* device,
+        mdr_packetconn_reply_specifier_t reply_specifier,
+        void (*device_result_callback)(mdr_packet_t*, void*),
+        void (*user_result_callback)(),
+        void* user_data)
+{
+    subscription_t* subscription = malloc(sizeof(subscription_t));
+    if (subscription == NULL)
+    {
+        return NULL;
+    }
+
+    subscription->user_result_callback = user_result_callback;
+    subscription->user_data = user_data;
+
+    void* handle = mdr_packetconn_subscribe(
+            device->conn,
+            reply_specifier,
+            device_result_callback,
+            subscription);
+
+    if (handle == NULL)
+    {
+        free(subscription);
+        return NULL;
+    }
+
+    subscription->handle = handle;
+
+    subscription->next = NULL;
+
+    if (device->subscriptions_tail == NULL)
+    {
+        device->subscriptions = subscription;
+        device->subscriptions_tail = subscription;
     }
     else
     {
-        errno = wait_result.error;
-        return NULL;
+        device->subscriptions_tail->next = subscription;
+        device->subscriptions_tail = subscription;
+    }
+
+    return subscription;
+}
+
+static void mdr_device_init_result_supported_function(mdr_packet_t* packet,
+                                                      void* user_data)
+{
+    callback_data_t* callback_data = (callback_data_t*) user_data;
+
+    mdr_device_t* device = callback_data->device;
+
+    for (int i = 0;
+         i < packet->data.connect_ret_support_function.num_function_types;
+         i++)
+    {
+        switch (packet->data.connect_ret_support_function.function_types[i])
+        {
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_POWER_OFF:
+                device->supported_functions.power_off = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_BATTERY_LEVEL:
+                device->supported_functions.battery = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_LEFT_RIGHT_BATTERY_LEVEL:
+                device->supported_functions.left_right_battery = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_CRADLE_BATTERY_LEVEL:
+                device->supported_functions.cradle_battery = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_NOISE_CANCELLING:
+                device->supported_functions.noise_cancelling = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_AMBIENT_SOUND_MODE:
+                device->supported_functions.ambient_sound_mode = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_NOISE_CANCELLING_AND_AMBIENT_SOUND_MODE:
+                device->supported_functions.noise_cancelling = true;
+                device->supported_functions.ambient_sound_mode = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_LEFT_RIGHT_CONNECTION_STATUS:
+                device->supported_functions.left_right_connection_status = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_PRESET_EQ:
+                device->supported_functions.eq = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_PRESET_EQ_NONCUSTOMIZABLE:
+                device->supported_functions.eq_non_customizable = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_AUTO_POWER_OFF:
+                device->supported_functions.auto_power_off = true;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(callback_data->user_data);
+    }
+
+    free(user_data);
+}
+
+static void mdr_device_init_result_protocol_info(mdr_packet_t* packet,
+                                                 void* user_data)
+{
+    callback_data_t* callback_data = (callback_data_t*) user_data;
+
+    mdr_device_t* device = callback_data->device;
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_CONNECT_GET_SUPPORT_FUNCTION;
+    request_packet.data.connect_get_support_function.fixed_value = 0;
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_CONNECT_RET_SUPPORT_FUNCTION,
+                .only_ack = false,
+            },
+            mdr_device_init_result_supported_function,
+            callback_data->user_result_callback,
+            callback_data->user_error_callback,
+            callback_data->user_data);
+
+    free(callback_data);
+}
+
+void mdr_device_init(mdr_device_t* device,
+                     void (*success)(void* user_data),
+                     void (*error)(void* user_data),
+                     void* user_data)
+{
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_CONNECT_GET_PROTOCOL_INFO;
+    request_packet.data.connect_get_protocol_info.fixed_value = 0;
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_CONNECT_RET_PROTOCOL_INFO,
+                .only_ack = false,
+            },
+            mdr_device_init_result_protocol_info,
+            success,
+            error,
+            user_data);
+}
+
+void mdr_device_remove_subscription(mdr_device_t* device,
+                                    void* handle)
+{
+    subscription_t* prev = NULL;
+    subscription_t* next;
+    for (subscription_t* subscription = device->subscriptions;
+         subscription != NULL;
+         prev = subscription, subscription = next)
+    {
+        next = subscription->next;
+
+        if (subscription == handle)
+        {
+            mdr_packetconn_remove_subscription(device->conn,
+                                               subscription->handle);
+
+            if (prev == NULL)
+            {
+                device->subscriptions = subscription->next;
+            }
+            else
+            {
+                prev->next = subscription->next;
+            }
+            if (subscription->next == NULL)
+            {
+                device->subscriptions_tail = prev;
+            }
+
+            free(subscription);
+
+            break;
+        }
     }
 }
 
-static void* mdr_device_make_request(
+static void mdr_device_get_model_name_result(mdr_packet_t* packet,
+                                             void* user_data)
+{
+    callback_data_t* callback_data = user_data;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+            packet->data.connect_ret_device_info.model_name.len,
+            packet->data.connect_ret_device_info.model_name.string,
+            callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+void mdr_device_get_model_name(
         mdr_device_t* device,
-        mdr_frame_t* frame,
-        reply_specifier_t expected_reply,
-        mdr_device_result_callback result_callback,
-        mdr_device_error_callback error_callback,
+        void (*result)(uint8_t length, const uint8_t* name, void* user_data),
+        void (*error)(void* user_data),
         void* user_data)
 {
-    if (mdr_device_process_by_availability(device, false, true) < 0)
-    {
-        free(frame);
-        return NULL;
-    }
-
-    callbacks_t* callbacks = malloc(sizeof(callbacks_t));
-    if (callbacks == NULL) return NULL;
-
-    callbacks->result_cb = result_callback;
-    callbacks->error_cb = error_callback;
-    callbacks->user_data = user_data;
-
-    if (device->frame == NULL)
-    {
-        frame->sequence_id = device->next_sequence_id;
-        *mdr_frame_checksum(frame) =
-            mdr_frame_compute_checksum(frame);
-
-        mdr_frame_t* send_frame = mdr_frame_dup(frame);
-        if (send_frame == NULL)
-        {
-            free(frame);
-            free(callbacks);
-            return NULL;
+    mdr_packet_t packet = {
+        .type = MDR_PACKET_CONNECT_GET_DEVICE_INFO,
+        .data = {
+            .connect_get_device_info = {
+                .inquired_type = MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_MODEL_NAME
+            }
         }
+    };
 
-        if (mdr_connection_write_frame(device->connection, send_frame) < 0)
-        {
-            free(frame);
-            free(callbacks);
-            return NULL;
-        }
-        device->next_sequence_id = !device->next_sequence_id;
-
-        device->frame = frame;
-        clock_gettime(CLOCK_MONOTONIC, &device->frame_time);
-        device->frame_attempts = 1;
-        device->frame_acked = false;
-        device->frame_callbacks = callbacks;
-        device->frame_expected_reply = expected_reply;
-    }
-    else
-    {
-        queued_frame_t* queued_frame = malloc(sizeof(queued_frame_t));
-        if (queued_frame == NULL)
-        {
-            free(frame);
-            free(callbacks);
-            return NULL;
-        }
-
-        queued_frame->frame = frame;
-        queued_frame->callbacks = callbacks;
-        queued_frame->expected_reply = expected_reply;
-        queued_frame->next = NULL;
-
-        if (device->frame_queue_tail == NULL)
-        {
-            device->frame_queue = queued_frame;
-            device->frame_queue_tail = queued_frame;
-        }
-        else
-        {
-            device->frame_queue_tail->next = queued_frame;
-            device->frame_queue_tail = queued_frame;
-        }
-    }
-
-    return callbacks;
+    mdr_device_make_request(
+            device,
+            &packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_CONNECT_RET_DEVICE_INFO,
+                .extra = MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_MODEL_NAME,
+                .only_ack = false
+            },
+            mdr_device_get_model_name_result,
+            (void (*)()) result,
+            error,
+            user_data);
 }
 
-static void* mdr_device_subscribe(
+static void mdr_device_get_fw_version_result(mdr_packet_t* packet,
+                                             void* user_data)
+{
+    callback_data_t* callback_data = user_data;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+            packet->data.connect_ret_device_info.fw_version.len,
+            packet->data.connect_ret_device_info.fw_version.string,
+            callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+void mdr_device_get_fw_version(
         mdr_device_t* device,
-        mdr_packet_type_t type,
-        uint8_t extra,
-        mdr_device_result_callback callback,
+        void (*result)(uint8_t length, const uint8_t* name, void* user_data),
+        void (*error)(void* user_data),
         void* user_data)
 {
-    callbacks_t* callbacks = malloc(sizeof(callbacks_t));
-    if (callbacks == NULL) return NULL;
-
-    callbacks->result_cb = callback;
-    callbacks->error_cb = NULL;
-    callbacks->user_data = user_data;
-
-    notifier_t* notifier = malloc(sizeof(notifier_t));
-    if (notifier == NULL)
-    {
-        free(callbacks);
-        return NULL;
-    }
-
-    notifier->packet_type = type;
-    notifier->extra = extra;
-    notifier->callbacks = callbacks;
-    notifier->next = device->notifiers[type];
-
-    device->notifiers[type] = notifier;
-
-    return notifier;
-}
-
-void mdr_device_remove_subscription(mdr_device_t* device, void* handle)
-{
-    notifier_t* notifier = handle;
-
-    notifier_t** notifier_list = &device->notifiers[notifier->packet_type];
-
-    for (; *notifier_list != NULL; notifier_list = &(*notifier_list)->next)
-    {
-        if (*notifier_list == notifier)
-        {
-            *notifier_list = (*notifier_list)->next;
+    mdr_packet_t packet = {
+        .type = MDR_PACKET_CONNECT_GET_DEVICE_INFO,
+        .data = {
+            .connect_get_device_info = {
+                .inquired_type = MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_FW_VERSION
+            }
         }
-    }
+    };
 
-    free(notifier->callbacks);
-    free(notifier);
+    mdr_device_make_request(
+            device,
+            &packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_CONNECT_RET_DEVICE_INFO,
+                .extra = MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_FW_VERSION,
+                .only_ack = false
+            },
+            mdr_device_get_fw_version_result,
+            (void (*)()) result,
+            error,
+            user_data);
 }
 
-void* mdr_device_get_protocol_version(
+static void mdr_device_get_series_and_color_result(mdr_packet_t* packet,
+                                                   void* user_data)
+{
+    callback_data_t* callback_data = user_data;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+            packet->data.connect_ret_device_info.series_and_color.series,
+            packet->data.connect_ret_device_info.series_and_color.color,
+            callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+void mdr_device_get_series_and_color(
         mdr_device_t* device,
-        mdr_device_result_callback result_callback,
-        mdr_device_error_callback error_callback,
+        void (*result)(mdr_packet_device_info_model_series_t,
+                       mdr_packet_device_info_model_color_t,
+                       void* user_data),
+        void (*error)(void* user_data),
         void* user_data)
 {
-    size_t len = 1 + sizeof(mdr_packet_connect_get_protocol_info_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_CONNECT_GET_PROTOCOL_INFO;
-    packet->data.connect_get_protocol_info.fixed_value = 0x00;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
-    {
-        return NULL;
-    }
-
-    reply_specifier_t expected_reply = {
-        .only_ack = false,
-        .packet_type = MDR_PACKET_CONNECT_RET_PROTOCOL_INFO,
-        .extra = 0,
+    mdr_packet_t request_packet = {
+        .type = MDR_PACKET_CONNECT_GET_DEVICE_INFO,
+        .data = {
+            .connect_get_device_info = {
+                .inquired_type = MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_SERIES_AND_COLOR
+            }
+        }
     };
 
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_CONNECT_RET_DEVICE_INFO,
+                .extra = MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_SERIES_AND_COLOR,
+                .only_ack = false
+            },
+            mdr_device_get_series_and_color_result,
+            (void (*)()) result,
+            error,
+            user_data);
 }
 
-void* mdr_device_get_device_info(mdr_device_t* device,
-                                 mdr_packet_device_info_inquired_type_t type,
-                                 mdr_device_result_callback result_callback,
-                                 mdr_device_error_callback error_callback,
-                                 void* user_data)
+int mdr_device_power_off(
+        mdr_device_t* device,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
 {
-    size_t len = 1 + sizeof(mdr_packet_connect_get_device_info_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_CONNECT_GET_DEVICE_INFO;
-    packet->data.connect_get_device_info.inquired_type = type;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
+    if (!device->supported_functions.power_off)
     {
-        return NULL;
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
     }
 
-    reply_specifier_t expected_reply = {
-        .only_ack = false,
-        .packet_type = MDR_PACKET_CONNECT_RET_DEVICE_INFO,
-        .extra = type,
+    mdr_packet_t request_packet = {
+        .type = MDR_PACKET_COMMON_SET_POWER_OFF,
+        .data = {
+            .common_set_power_off = {
+                .inquired_type
+                    = MDR_PACKET_COMMON_POWER_OFF_INQUIRED_TYPE_FIXED_VALUE,
+                .setting_value
+                    = MDR_PACKET_COMMON_POWER_OFF_SETTING_VALUE_USER_POWER_OFF,
+            },
+        },
     };
 
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true,
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
 
-    return handle;
+    return 0;
 }
 
-void* mdr_device_get_support_functions(mdr_device_t* device,
-                                       mdr_device_result_callback result_callback,
-                                       mdr_device_error_callback error_callback,
-                                       void* user_data)
+static void mdr_device_get_battery_level_result(mdr_packet_t* packet,
+                                                void* user_data)
 {
-    size_t len = 1 + sizeof(mdr_packet_connect_get_support_function_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
+    callback_data_t* callback_data = user_data;
 
-    packet->type = MDR_PACKET_CONNECT_GET_SUPPORT_FUNCTION;
-    packet->data.connect_get_support_function.fixed_value = 0x00;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
+    if (callback_data->user_result_callback != NULL)
     {
-        return NULL;
+        callback_data->user_result_callback(
+            packet->data.common_ret_battery_level.battery.level,
+            packet->data.common_ret_battery_level.battery.charging,
+            callback_data->user_data);
     }
 
-    reply_specifier_t expected_reply = {
-        .only_ack = false,
-        .packet_type = MDR_PACKET_CONNECT_RET_SUPPORT_FUNCTION,
-        .extra = 0,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
+    free(callback_data);
 }
 
-void* mdr_device_get_battery_level(mdr_device_t* device,
-                                   mdr_packet_battery_inquired_type_t type,
-                                   mdr_device_result_callback result_callback,
-                                   mdr_device_error_callback error_callback,
-                                   void* user_data)
+int mdr_device_get_battery_level(
+        mdr_device_t* device,
+        void (*result)(uint8_t level, bool charging, void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
 {
-    size_t len = 1 + sizeof(mdr_packet_common_get_battery_level_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_COMMON_GET_BATTERY_LEVEL;
-    packet->data.common_get_battery_level.inquired_type = type;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
+    if (!device->supported_functions.battery)
     {
-        return NULL;
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
     }
 
-    reply_specifier_t expected_reply = {
-        .only_ack = false,
-        .packet_type = MDR_PACKET_COMMON_RET_BATTERY_LEVEL,
-        .extra = type,
+    mdr_packet_t packet = {
+        .type = MDR_PACKET_COMMON_GET_BATTERY_LEVEL,
+        .data = {
+            .common_get_battery_level = {
+                .inquired_type = MDR_PACKET_BATTERY_INQUIRED_TYPE_BATTERY
+            }
+        }
     };
 
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
+    mdr_device_make_request(
+            device,
+            &packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_RET_BATTERY_LEVEL,
+                .extra = MDR_PACKET_BATTERY_INQUIRED_TYPE_BATTERY,
+                .only_ack = false
+            },
+            mdr_device_get_battery_level_result,
+            (void (*)()) result,
+            error,
+            user_data);
 
-    return handle;
+    return 0;
+}
+
+static void mdr_device_subscribe_battery_level_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        subscription->user_result_callback(
+                packet->data.common_ntfy_battery_level.battery.level,
+                packet->data.common_ntfy_battery_level.battery.charging,
+                subscription->user_data);
+    }
 }
 
 void* mdr_device_subscribe_battery_level(
         mdr_device_t* device,
-        mdr_packet_battery_inquired_type_t type,
-        mdr_device_result_callback callback,
+        void (*update)(uint8_t level, bool charging, void* user_data),
         void* user_data)
 {
-    return mdr_device_subscribe(device,
-                                MDR_PACKET_COMMON_NTFY_BATTERY_LEVEL,
-                                type,
-                                callback,
-                                user_data);
+    if (!device->supported_functions.battery)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return NULL;
+    }
+
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_NTFY_BATTERY_LEVEL,
+                .extra = MDR_PACKET_BATTERY_INQUIRED_TYPE_BATTERY,
+                .only_ack = false
+            },
+            mdr_device_subscribe_battery_level_update,
+            (void (*)()) update,
+            user_data);
 }
 
-void* mdr_device_get_eqebb_capability(
+static void mdr_device_get_left_right_battery_level_result(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    callback_data_t* callback_data = user_data;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+            packet->data.common_ret_battery_level.left_right_battery.left.level,
+            packet->data.common_ret_battery_level.left_right_battery.left.charging,
+            packet->data.common_ret_battery_level.left_right_battery.right.level,
+            packet->data.common_ret_battery_level.left_right_battery.right.charging,
+            callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_get_left_right_battery_level(
         mdr_device_t* device,
-        mdr_packet_eqebb_inquired_type_t type,
-        mdr_packet_eqebb_display_language_t display_language,
-        mdr_device_result_callback result_callback,
-        mdr_device_error_callback error_callback,
+        void (*result)(uint8_t left_level,
+                       bool left_charging,
+                       uint8_t right_level,
+                       bool right_charging,
+                       void* user_data),
+        void (*error)(void* user_data),
         void* user_data)
 {
-    size_t len = 1 + sizeof(mdr_packet_eqebb_get_capability_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_EQEBB_GET_CAPABILITY;
-    packet->data.eqebb_get_capability.inquired_type = type;
-    packet->data.eqebb_get_capability.display_language = display_language;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
+    if (!device->supported_functions.left_right_battery)
     {
-        return NULL;
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
     }
 
-    reply_specifier_t expected_reply = {
-        .only_ack = false,
-        .packet_type = MDR_PACKET_EQEBB_RET_CAPABILITY,
-        .extra = type,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
-}
-
-void* mdr_device_get_eqebb_param(mdr_device_t* device,
-                                 mdr_packet_eqebb_inquired_type_t type,
-                                 mdr_device_result_callback result_callback,
-                                 mdr_device_error_callback error_callback,
-                                 void* user_data)
-{
-    size_t len = 1 + sizeof(mdr_packet_eqebb_get_param_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_EQEBB_GET_PARAM;
-    packet->data.eqebb_get_param.inquired_type = type;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
-    {
-        return NULL;
-    }
-
-    reply_specifier_t expected_reply = {
-        .only_ack = false,
-        .packet_type = MDR_PACKET_EQEBB_RET_PARAM,
-        .extra = type,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
-}
-
-void* mdr_device_set_eq_preset(mdr_device_t* device,
-                               mdr_packet_eqebb_eq_preset_id_t preset_id,
-                               mdr_device_result_callback result_callback,
-                               mdr_device_error_callback error_callback,
-                               void* user_data)
-{
-    size_t len = 1 + sizeof(mdr_packet_eqebb_set_param_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_EQEBB_SET_PARAM;
-    packet->data.eqebb_set_param.inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ;
-    packet->data.eqebb_set_param.eq.preset_id = preset_id;
-    packet->data.eqebb_set_param.eq.num_levels = 0;
-    packet->data.eqebb_set_param.eq.levels = NULL;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
-    {
-        return NULL;
-    }
-
-    reply_specifier_t expected_reply = {
-        .only_ack = true,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
-}
-
-void* mdr_device_set_eq_levels(mdr_device_t* device,
-                               uint8_t num_levels,
-                               uint8_t* levels,
-                               mdr_device_result_callback result_callback,
-                               mdr_device_error_callback error_callback,
-                               void* user_data)
-{
-    size_t len = 1 + sizeof(mdr_packet_eqebb_set_param_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_EQEBB_SET_PARAM;
-    packet->data.eqebb_set_param.inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ;
-    packet->data.eqebb_set_param.eq.preset_id =
-        MDR_PACKET_EQEBB_EQ_PRESET_ID_UNSPECIFIED;
-    packet->data.eqebb_set_param.eq.num_levels = num_levels;
-    packet->data.eqebb_set_param.eq.levels = malloc(num_levels);
-    memcpy(packet->data.eqebb_set_param.eq.levels,
-           levels,
-           num_levels);
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
-    {
-        return NULL;
-    }
-
-    reply_specifier_t expected_reply = {
-        .only_ack = true,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
-}
-
-void* mdr_device_get_ncasm_param(mdr_device_t* device,
-                                 mdr_packet_ncasm_inquired_type_t type,
-                                 mdr_device_result_callback result_callback,
-                                 mdr_device_error_callback error_callback,
-                                 void* user_data)
-{
-    size_t len = 1 + sizeof(mdr_packet_ncasm_get_param_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_NCASM_GET_PARAM;
-    packet->data.ncasm_get_param.inquired_type = type;
-
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
-    {
-        return NULL;
-    }
-
-    reply_specifier_t expected_reply = {
-        .only_ack = false,
-        .packet_type = MDR_PACKET_NCASM_RET_PARAM,
-        .extra = type,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
-}
-
-void* mdr_device_ncasm_disable(mdr_device_t* device,
-                               mdr_packet_ncasm_inquired_type_t type,
-                               mdr_device_result_callback result_callback,
-                               mdr_device_error_callback error_callback,
-                               void* user_data)
-{
-    size_t len = 1 + sizeof(mdr_packet_ncasm_set_param_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
-
-    packet->type = MDR_PACKET_NCASM_SET_PARAM;
-    packet->data.ncasm_set_param.inquired_type = type;
-    switch (type)
-    {
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING:
-        {
-            mdr_packet_ncasm_param_noise_cancelling_t param = {
-                .nc_setting_type = MDR_PACKET_NCASM_NC_SETTING_TYPE_ON_OFF,
-                .nc_setting_value = MDR_PACKET_NCASM_NC_SETTING_VALUE_OFF,
-            };
-            packet->data.ncasm_set_param.noise_cancelling = param;
+    mdr_packet_t packet = {
+        .type = MDR_PACKET_COMMON_GET_BATTERY_LEVEL,
+        .data = {
+            .common_get_battery_level = {
+                .inquired_type = MDR_PACKET_BATTERY_INQUIRED_TYPE_LEFT_RIGHT_BATTERY
+            }
         }
-        break;
+    };
 
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
-        {
-            mdr_packet_ncasm_param_asm_t param = {
-                .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_OFF,
-                .asm_setting_type =
-                    MDR_PACKET_NCASM_ASM_SETTING_TYPE_LEVEL_ADJUSTMENT,
-                .asm_id = MDR_PACKET_NCASM_ASM_ID_NORMAL,
-                .asm_amount = 0,
-            };
-            packet->data.ncasm_set_param.ambient_sound_mode = param;
-        }
-        break;
+    mdr_device_make_request(
+            device,
+            &packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_RET_BATTERY_LEVEL,
+                .extra = MDR_PACKET_BATTERY_INQUIRED_TYPE_LEFT_RIGHT_BATTERY,
+                .only_ack = false
+            },
+            mdr_device_get_left_right_battery_level_result,
+            (void (*)()) result,
+            error,
+            user_data);
 
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM:
-        {
-            mdr_packet_ncasm_param_noise_cancelling_asm_t param = {
-                .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_OFF,
-                .ncasm_setting_type =
-                    MDR_PACKET_NCASM_NCASM_SETTING_TYPE_DUAL_SINGLE_OFF,
-                .ncasm_amount = 2,
-                .asm_setting_type = MDR_PACKET_NCASM_ASM_SETTING_TYPE_ON_OFF,
-                .asm_id = MDR_PACKET_NCASM_ASM_ID_NORMAL,
-                .asm_amount = 0,
-            };
-            packet->data.ncasm_set_param.noise_cancelling_asm = param;
-        }
-        break;
-    }
+    return 0;
+}
 
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
+static void mdr_device_subscribe_left_right_battery_level_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
     {
+        subscription->user_result_callback(
+                packet->data.common_ntfy_battery_level.left_right_battery.left.level,
+                packet->data.common_ntfy_battery_level.left_right_battery.left.charging,
+                packet->data.common_ntfy_battery_level.left_right_battery.right.level,
+                packet->data.common_ntfy_battery_level.left_right_battery.right.charging,
+                subscription->user_data);
+    }
+}
+
+void* mdr_device_subscribe_left_right_battery_level(
+        mdr_device_t* device,
+        void (*update)(uint8_t left_level,
+                       bool left_charging,
+                       uint8_t right_level,
+                       bool right_charging,
+                       void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.left_right_battery)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
         return NULL;
     }
 
-    reply_specifier_t expected_reply = {
-        .only_ack = true,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_NTFY_BATTERY_LEVEL,
+                .extra = MDR_PACKET_BATTERY_INQUIRED_TYPE_LEFT_RIGHT_BATTERY,
+                .only_ack = false
+            },
+            mdr_device_subscribe_left_right_battery_level_update,
+            (void (*)()) update,
+            user_data);
 }
 
-void* mdr_device_ncasm_enable_nc(mdr_device_t* device,
-                                 mdr_packet_ncasm_inquired_type_t type,
-                                 mdr_device_result_callback result_callback,
-                                 mdr_device_error_callback error_callback,
-                                 void* user_data)
+static void mdr_device_get_cradle_battery_level_result(mdr_packet_t* packet,
+                                                       void* user_data)
 {
-    size_t len = 1 + sizeof(mdr_packet_ncasm_set_param_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
+    callback_data_t* callback_data = user_data;
 
-    packet->type = MDR_PACKET_NCASM_SET_PARAM;
-    packet->data.ncasm_set_param.inquired_type = type;
-    switch (type)
+    if (callback_data->user_result_callback != NULL)
     {
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING:
-        {
-            mdr_packet_ncasm_param_noise_cancelling_t param = {
-                .nc_setting_type = MDR_PACKET_NCASM_NC_SETTING_TYPE_ON_OFF,
-                .nc_setting_value = MDR_PACKET_NCASM_NC_SETTING_VALUE_ON,
-            };
-            packet->data.ncasm_set_param.noise_cancelling = param;
-        }
-        break;
-
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
-            free(packet);
-            errno = EINVAL;
-            return NULL;
-
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM:
-        {
-            mdr_packet_ncasm_param_noise_cancelling_asm_t param = {
-                .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_ON,
-                .ncasm_setting_type =
-                    MDR_PACKET_NCASM_NCASM_SETTING_TYPE_DUAL_SINGLE_OFF,
-                .ncasm_amount = 2,
-                .asm_setting_type = MDR_PACKET_NCASM_ASM_SETTING_TYPE_ON_OFF,
-                .asm_id = MDR_PACKET_NCASM_ASM_ID_NORMAL,
-                .asm_amount = 0,
-            };
-            packet->data.ncasm_set_param.noise_cancelling_asm = param;
-        }
-        break;
+        callback_data->user_result_callback(
+            packet->data.common_ret_battery_level.cradle_battery.level,
+            packet->data.common_ret_battery_level.cradle_battery.charging,
+            callback_data->user_data);
     }
 
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
+    free(callback_data);
+}
+
+int mdr_device_get_cradle_battery_level(
+        mdr_device_t* device,
+        void (*result)(uint8_t level, bool charging, void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.cradle_battery)
     {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t packet = {
+        .type = MDR_PACKET_COMMON_GET_BATTERY_LEVEL,
+        .data = {
+            .common_get_battery_level = {
+                .inquired_type = MDR_PACKET_BATTERY_INQUIRED_TYPE_CRADLE_BATTERY
+            }
+        }
+    };
+
+    mdr_device_make_request(
+            device,
+            &packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_RET_BATTERY_LEVEL,
+                .extra = MDR_PACKET_BATTERY_INQUIRED_TYPE_CRADLE_BATTERY,
+                .only_ack = false
+            },
+            mdr_device_get_cradle_battery_level_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_subscribe_cradle_battery_level_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        subscription->user_result_callback(
+                packet->data.common_ntfy_battery_level.cradle_battery.level,
+                packet->data.common_ntfy_battery_level.cradle_battery.charging,
+                subscription->user_data);
+    }
+}
+
+void* mdr_device_subscribe_cradle_battery_level(
+        mdr_device_t* device,
+        void (*update)(uint8_t level, bool charging, void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.cradle_battery)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
         return NULL;
     }
 
-    reply_specifier_t expected_reply = {
-        .only_ack = true,
-    };
-
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_NTFY_BATTERY_LEVEL,
+                .extra = MDR_PACKET_BATTERY_INQUIRED_TYPE_CRADLE_BATTERY,
+                .only_ack = false
+            },
+            mdr_device_subscribe_cradle_battery_level_update,
+            (void (*)()) update,
+            user_data);
 }
 
-void* mdr_device_ncasm_enable_asm(mdr_device_t* device,
-                                  mdr_packet_ncasm_inquired_type_t type,
-                                  bool voice,
-                                  uint8_t amount,
-                                  mdr_device_result_callback result_callback,
-                                  mdr_device_error_callback error_callback,
-                                  void* user_data)
+static void mdr_device_get_left_right_connection_status_result(
+        mdr_packet_t* packet,
+        void* user_data)
 {
-    size_t len = 1 + sizeof(mdr_packet_ncasm_set_param_t);
-    mdr_packet_t* packet = malloc(len);
-    if (packet == NULL) return NULL;
+    callback_data_t* callback_data = user_data;
 
-    packet->type = MDR_PACKET_NCASM_SET_PARAM;
-    packet->data.ncasm_set_param.inquired_type = type;
-    switch (type)
+    if (callback_data->user_result_callback != NULL)
     {
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING:
-            free(packet);
-            errno = EINVAL;
-            return NULL;
-
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
-        {
-            mdr_packet_ncasm_param_asm_t param = {
-                .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_ON,
-                .asm_setting_type =
-                    MDR_PACKET_NCASM_ASM_SETTING_TYPE_ON_OFF,
-                .asm_id = voice ? MDR_PACKET_NCASM_ASM_ID_VOICE :
-                                  MDR_PACKET_NCASM_ASM_ID_NORMAL,
-                .asm_amount = amount,
-            };
-            packet->data.ncasm_set_param.ambient_sound_mode = param;
-        }
-        break;
-
-        case MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM:
-        {
-            mdr_packet_ncasm_param_noise_cancelling_asm_t param = {
-                .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_ON,
-                .ncasm_setting_type =
-                    MDR_PACKET_NCASM_NCASM_SETTING_TYPE_DUAL_SINGLE_OFF,
-                .ncasm_amount = 0,
-                .asm_setting_type =
-                    MDR_PACKET_NCASM_ASM_SETTING_TYPE_LEVEL_ADJUSTMENT,
-                .asm_id = voice ? MDR_PACKET_NCASM_ASM_ID_VOICE :
-                                  MDR_PACKET_NCASM_ASM_ID_NORMAL,
-                .asm_amount = amount,
-            };
-            packet->data.ncasm_set_param.noise_cancelling_asm = param;
-        }
-        break;
+        callback_data->user_result_callback(
+            packet->data.common_ret_connection_status.left_right.left_status
+                == MDR_PACKET_CONNECTION_STATUS_CONNECTION_STATUS_CONNECTED,
+            packet->data.common_ret_connection_status.left_right.right_status
+                == MDR_PACKET_CONNECTION_STATUS_CONNECTION_STATUS_CONNECTED,
+            callback_data->user_data);
     }
 
-    mdr_frame_t* frame = mdr_packet_to_frame(packet);
-    free(packet);
-    if (frame == NULL)
+    free(callback_data);
+}
+
+int mdr_device_get_left_right_connection_status(
+        mdr_device_t* device,
+        void (*result)(bool left_connected,
+                       bool right_connected,
+                       void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.left_right_connection_status)
     {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t packet = {
+        .type = MDR_PACKET_COMMON_GET_CONNECTION_STATUS,
+        .data = {
+            .common_get_connection_status = {
+                .inquired_type = MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT,
+            },
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_RET_CONNECTION_STATUS,
+                .extra = MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT,
+                .only_ack = false
+            },
+            mdr_device_get_left_right_connection_status_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_subscribe_left_right_connection_status_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        subscription->user_result_callback(
+                packet->data.common_ntfy_connection_status.left_right.left_status
+                    == MDR_PACKET_CONNECTION_STATUS_CONNECTION_STATUS_CONNECTED,
+                packet->data.common_ntfy_connection_status.left_right.right_status
+                    == MDR_PACKET_CONNECTION_STATUS_CONNECTION_STATUS_CONNECTED,
+                subscription->user_data);
+    }
+}
+
+void* mdr_device_subscribe_left_right_connection_status(
+        mdr_device_t* device,
+        void (*update)(bool left_connected,
+                       bool right_connected,
+                       void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.left_right_connection_status)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
         return NULL;
     }
 
-    reply_specifier_t expected_reply = {
-        .only_ack = true,
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_COMMON_NTFY_CONNECTION_STATUS,
+                .extra = MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT,
+                .only_ack = false
+            },
+            mdr_device_subscribe_left_right_connection_status_update,
+            (void (*)()) update,
+            user_data);
+}
+
+static void mdr_device_get_noise_cancelling_enabled_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        void* user_data = callback_data->user_data;
+
+        if (packet->data.ncasm_ret_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING)
+        {
+            callback_data->user_result_callback(
+                    packet->data.ncasm_ret_param.noise_cancelling.nc_setting_value
+                        == MDR_PACKET_NCASM_NC_SETTING_VALUE_ON,
+                    user_data);
+        }
+        else if (packet->data.ncasm_ret_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM)
+        {
+            callback_data->user_result_callback(
+                    packet->data.ncasm_ret_param.noise_cancelling_asm.ncasm_effect
+                        == MDR_PACKET_NCASM_NCASM_EFFECT_ON,
+                    user_data);
+        }
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_get_noise_cancelling_enabled(
+        mdr_device_t* device,
+        void (*result)(bool enabled, void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.noise_cancelling)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_NCASM_GET_PARAM;
+
+    if (device->supported_functions.ambient_sound_mode)
+    {
+        request_packet.data.ncasm_get_param.inquired_type
+            = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM;
+    }
+    else
+    {
+        request_packet.data.ncasm_get_param.inquired_type
+            = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING;
+    }
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_NCASM_RET_PARAM,
+                .extra = request_packet.data.ncasm_get_param.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_get_noise_cancelling_enabled_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_subscribe_noise_cancelling_enabled_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        if (packet->data.ncasm_ntfy_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING)
+        {
+            subscription->user_result_callback(
+                    packet->data.ncasm_ntfy_param.noise_cancelling.nc_setting_value
+                        == MDR_PACKET_NCASM_NC_SETTING_VALUE_ON,
+                    subscription->user_data);
+        }
+        else if (packet->data.ncasm_ntfy_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM)
+        {
+            subscription->user_result_callback(
+                    packet->data.ncasm_ntfy_param.noise_cancelling_asm.ncasm_effect
+                        == MDR_PACKET_NCASM_NCASM_EFFECT_ON,
+                    subscription->user_data);
+        }
+    }
+}
+
+void* mdr_device_subscribe_noise_cancelling_enabled(
+        mdr_device_t* device,
+        void (*update)(bool enabled, void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.noise_cancelling)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return NULL;
+    }
+
+    uint8_t inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING;
+
+    if (device->supported_functions.ambient_sound_mode)
+    {
+        inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM;
+    }
+
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_NCASM_NTFY_PARAM,
+                .extra = inquired_type,
+                .only_ack = false
+            },
+            mdr_device_subscribe_noise_cancelling_enabled_update,
+            (void (*)()) update,
+            user_data);
+}
+
+static void mdr_device_get_ambient_sound_mode_settings_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        void* user_data = callback_data->user_data;
+
+        if (packet->data.ncasm_ret_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_ASM)
+        {
+            callback_data->user_result_callback(
+                    packet->data.ncasm_ret_param.ambient_sound_mode.asm_amount,
+                    packet->data.ncasm_ret_param.ambient_sound_mode.asm_id
+                        == MDR_PACKET_NCASM_ASM_ID_VOICE,
+                    user_data);
+        }
+        else if (packet->data.ncasm_ret_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM)
+        {
+            uint8_t amount = 0;
+
+            if (packet->data.ncasm_ret_param.noise_cancelling_asm.ncasm_effect
+                        == MDR_PACKET_NCASM_NCASM_EFFECT_ON)
+            {
+                amount = packet->data.ncasm_ret_param.noise_cancelling_asm
+                    .asm_amount;
+            }
+
+            callback_data->user_result_callback(
+                    amount,
+                    packet->data.ncasm_ret_param.noise_cancelling_asm.asm_id
+                        == MDR_PACKET_NCASM_ASM_ID_VOICE,
+                    user_data);
+        }
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_get_ambient_sound_mode_settings(
+        mdr_device_t* device,
+        void (*result)(uint8_t level, bool voice, void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.ambient_sound_mode)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_NCASM_GET_PARAM;
+
+    if (device->supported_functions.noise_cancelling)
+    {
+        request_packet.data.ncasm_get_param.inquired_type
+            = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM;
+    }
+    else
+    {
+        request_packet.data.ncasm_get_param.inquired_type
+            = MDR_PACKET_NCASM_INQUIRED_TYPE_ASM;
+    }
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_NCASM_RET_PARAM,
+                .extra = request_packet.data.ncasm_get_param.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_get_ambient_sound_mode_settings_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_subscribe_ambient_sound_mode_settings_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        if (packet->data.ncasm_ntfy_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_ASM)
+        {
+            subscription->user_result_callback(
+                    packet->data.ncasm_ntfy_param.ambient_sound_mode.asm_amount,
+                    packet->data.ncasm_ntfy_param.ambient_sound_mode.asm_id
+                        == MDR_PACKET_NCASM_ASM_ID_VOICE,
+                    subscription->user_data);
+        }
+        else if (packet->data.ncasm_ntfy_param.inquired_type
+                == MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM)
+        {
+            uint8_t amount = 0;
+
+            if (packet->data.ncasm_ntfy_param.noise_cancelling_asm.ncasm_effect
+                        == MDR_PACKET_NCASM_NCASM_EFFECT_ON)
+            {
+                amount = packet->data.ncasm_ntfy_param.noise_cancelling_asm
+                    .asm_amount;
+            }
+
+            subscription->user_result_callback(
+                    amount,
+                    packet->data.ncasm_ntfy_param.noise_cancelling_asm.asm_id
+                        == MDR_PACKET_NCASM_ASM_ID_VOICE,
+                    subscription->user_data);
+        }
+    }
+}
+
+void* mdr_device_subscribe_ambient_sound_mode_settings(
+        mdr_device_t* device,
+        void (*update)(uint8_t amount, bool voice, void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.ambient_sound_mode)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return NULL;
+    }
+
+    uint8_t inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_ASM;
+
+    if (device->supported_functions.noise_cancelling)
+    {
+        inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM;
+    }
+
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_NCASM_NTFY_PARAM,
+                .extra = inquired_type,
+                .only_ack = false
+            },
+            mdr_device_subscribe_ambient_sound_mode_settings_update,
+            (void (*)()) update,
+            user_data);
+}
+
+int mdr_device_disable_ncasm(
+        mdr_device_t* device,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.noise_cancelling)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_NCASM_SET_PARAM;
+
+    if (device->supported_functions.ambient_sound_mode)
+    {
+        request_packet.data = (mdr_packet_data_t){
+            .ncasm_set_param = {
+                .inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM,
+                .noise_cancelling_asm = {
+                    .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_OFF,
+                    .ncasm_setting_type = MDR_PACKET_NCASM_NCASM_SETTING_TYPE_DUAL_SINGLE_OFF,
+                    .ncasm_amount = 2,
+                    .asm_setting_type = MDR_PACKET_NCASM_ASM_SETTING_TYPE_LEVEL_ADJUSTMENT,
+                    .asm_id = MDR_PACKET_NCASM_ASM_ID_NORMAL,
+                    .asm_amount = 0
+                }
+            }
+        };
+    }
+    else
+    {
+        request_packet.data = (mdr_packet_data_t){
+            .ncasm_set_param = {
+                .inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING,
+                .noise_cancelling = {
+                    .nc_setting_type = MDR_PACKET_NCASM_NC_SETTING_TYPE_ON_OFF,
+                    .nc_setting_value = MDR_PACKET_NCASM_NC_SETTING_VALUE_OFF
+                }
+            }
+        };
+    }
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+int mdr_device_enable_noise_cancelling(
+        mdr_device_t* device,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.noise_cancelling)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_NCASM_SET_PARAM;
+
+    if (device->supported_functions.ambient_sound_mode)
+    {
+        request_packet.data = (mdr_packet_data_t){
+            .ncasm_set_param = {
+                .inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM,
+                .noise_cancelling_asm = {
+                    .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_ON,
+                    .ncasm_setting_type = MDR_PACKET_NCASM_NCASM_SETTING_TYPE_DUAL_SINGLE_OFF,
+                    .ncasm_amount = 2,
+                    .asm_setting_type = MDR_PACKET_NCASM_ASM_SETTING_TYPE_LEVEL_ADJUSTMENT,
+                    .asm_id = MDR_PACKET_NCASM_ASM_ID_NORMAL,
+                    .asm_amount = 0
+                }
+            }
+        };
+    }
+    else
+    {
+        request_packet.data = (mdr_packet_data_t){
+            .ncasm_set_param = {
+                .inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING,
+                .noise_cancelling = {
+                    .nc_setting_type = MDR_PACKET_NCASM_NC_SETTING_TYPE_ON_OFF,
+                    .nc_setting_value = MDR_PACKET_NCASM_NC_SETTING_VALUE_ON
+                }
+            }
+        };
+    }
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+int mdr_device_enable_ambient_sound_mode(
+        mdr_device_t* device,
+        uint8_t level,
+        bool voice,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.ambient_sound_mode)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_NCASM_SET_PARAM;
+
+    if (device->supported_functions.noise_cancelling)
+    {
+        request_packet.data = (mdr_packet_data_t){
+            .ncasm_set_param = {
+                .inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM,
+                .noise_cancelling_asm = {
+                    .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_ON,
+                    .ncasm_setting_type = MDR_PACKET_NCASM_NCASM_SETTING_TYPE_DUAL_SINGLE_OFF,
+                    .ncasm_amount = 0,
+                    .asm_setting_type = MDR_PACKET_NCASM_ASM_SETTING_TYPE_LEVEL_ADJUSTMENT,
+                    .asm_id = voice ? MDR_PACKET_NCASM_ASM_ID_VOICE
+                                    : MDR_PACKET_NCASM_ASM_ID_NORMAL,
+                    .asm_amount = level
+                }
+            }
+        };
+    }
+    else
+    {
+        request_packet.data = (mdr_packet_data_t){
+            .ncasm_set_param = {
+                .inquired_type = MDR_PACKET_NCASM_INQUIRED_TYPE_ASM,
+                .ambient_sound_mode = {
+                    .ncasm_effect = MDR_PACKET_NCASM_NCASM_EFFECT_ON,
+                    .asm_setting_type = MDR_PACKET_NCASM_ASM_SETTING_TYPE_LEVEL_ADJUSTMENT,
+                    .asm_id = voice ? MDR_PACKET_NCASM_ASM_ID_VOICE
+                                    : MDR_PACKET_NCASM_ASM_ID_NORMAL,
+                    .asm_amount = level,
+                },
+            },
+        };
+    }
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+void mdr_device_get_eq_capabilities_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        uint8_t num_presets = packet->data.eqebb_ret_capability.eq.num_presets;
+        mdr_packet_eqebb_eq_preset_id_t* presets = malloc(num_presets);
+
+        if (presets == NULL)
+        {
+            error_callback_passthrough(callback_data_ptr);
+            return;
+        }
+
+        for (int i = 0; i < num_presets; i++)
+        {
+            presets[i] = packet->data.eqebb_ret_capability.eq.presets[i]
+                .preset_id;
+        }
+
+        callback_data->user_result_callback(
+                packet->data.eqebb_ret_capability.eq.band_count,
+                packet->data.eqebb_ret_capability.eq.level_steps,
+                num_presets,
+                presets,
+                callback_data->user_data);
+
+        free(presets);
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_get_eq_capabilities(
+        mdr_device_t* device,
+        void (*result)(uint8_t band_count,
+                       uint8_t level_steps,
+                       uint8_t num_presets,
+                       mdr_packet_eqebb_eq_preset_id_t* presets,
+                       void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.eq
+            && !device->supported_functions.eq_non_customizable)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_EQEBB_GET_CAPABILITY;
+
+    request_packet.data = (mdr_packet_data_t){
+        .eqebb_get_capability = {
+            .inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ,
+            .display_language = MDR_PACKET_EQEBB_DISPLAY_LANGUAGE_UNDEFINED_LANGUAGE,
+        },
     };
 
-    void* handle = mdr_device_make_request(device,
-                                           frame,
-                                           expected_reply,
-                                           result_callback,
-                                           error_callback,
-                                           user_data);
-
-    return handle;
-
-}
-
-void* mdr_device_ncasm_subscribe(mdr_device_t* device,
-                                 mdr_packet_ncasm_inquired_type_t type,
-                                 mdr_device_result_callback callback,
-                                 void* user_data)
-{
-    return mdr_device_subscribe(device,
-                                MDR_PACKET_NCASM_NTFY_PARAM,
-                                type,
-                                callback,
-                                user_data);
-}
-
-static struct timespec timespec_add(struct timespec a, struct timespec b)
-{
-    struct timespec result;
-
-    result.tv_sec = a.tv_sec + b.tv_sec;
-    result.tv_nsec = a.tv_nsec + b.tv_nsec;
-
-    if (result.tv_nsec > 1000000000)
+    if (device->supported_functions.eq_non_customizable)
     {
-        result.tv_sec += 1;
-        result.tv_nsec -= 1000000000;
+        request_packet.data.eqebb_get_capability.inquired_type
+            = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE;
     }
 
-    return result;
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_EQEBB_RET_CAPABILITY,
+                .extra = request_packet.data.eqebb_get_capability.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_get_eq_capabilities_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
 }
 
-static struct timespec timespec_sub(struct timespec a, struct timespec b)
+void mdr_device_get_eq_preset_and_levels_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
 {
-    struct timespec result;
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
 
-    result.tv_sec = a.tv_sec - b.tv_sec;
-    result.tv_nsec = a.tv_nsec - b.tv_nsec;
-
-    if (result.tv_nsec < 0)
+    if (callback_data->user_result_callback != NULL)
     {
-        result.tv_sec -= 1;
-        result.tv_nsec += 1000000000;
+        callback_data->user_result_callback(
+                packet->data.eqebb_ret_param.eq.preset_id,
+                packet->data.eqebb_ret_param.eq.num_levels,
+                packet->data.eqebb_ret_param.eq.levels,
+                callback_data->user_data);
     }
 
-    return result;
+    free(callback_data);
 }
 
-static int timespec_compare(struct timespec a, struct timespec b)
+int mdr_device_get_eq_preset_and_levels(
+        mdr_device_t* device,
+        void (*result)(mdr_packet_eqebb_eq_preset_id_t preset,
+                       uint8_t num_levels,
+                       uint8_t* levels,
+                       void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
 {
-    if (a.tv_sec < b.tv_sec) return -1;
-    else if (a.tv_sec > b.tv_sec) return 1;
+    if (!device->supported_functions.eq
+            && !device->supported_functions.eq_non_customizable)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
 
-    if (a.tv_nsec < b.tv_nsec) return -1;
-    else if (a.tv_nsec > b.tv_nsec) return 1;
-    else return 0;
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_EQEBB_GET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .eqebb_get_param = {
+            .inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ,
+        },
+    };
+
+    if (device->supported_functions.eq_non_customizable)
+    {
+        request_packet.data.eqebb_get_param.inquired_type
+            = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE;
+    }
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_EQEBB_RET_PARAM,
+                .extra = request_packet.data.eqebb_ret_param.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_get_eq_preset_and_levels_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
 }
 
+static void mdr_device_subscribe_eq_preset_and_levels_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        subscription->user_result_callback(
+                packet->data.eqebb_ntfy_param.eq.preset_id,
+                packet->data.eqebb_ntfy_param.eq.num_levels,
+                packet->data.eqebb_ntfy_param.eq.levels,
+                subscription->user_data);
+    }
+}
+
+void* mdr_device_subscribe_eq_preset_and_levels(
+        mdr_device_t* device,
+        void (*update)(mdr_packet_eqebb_eq_preset_id_t preset_id,
+                       uint8_t num_levels,
+                       uint8_t* levels,
+                       void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.eq
+            && !device->supported_functions.eq_non_customizable)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return NULL;
+    }
+
+    uint8_t inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ;
+
+    if (device->supported_functions.eq_non_customizable)
+    {
+        inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE;
+    }
+
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_EQEBB_NTFY_PARAM,
+                .extra = inquired_type,
+                .only_ack = false
+            },
+            mdr_device_subscribe_eq_preset_and_levels_update,
+            (void (*)()) update,
+            user_data);
+}
+
+int mdr_device_set_eq_preset(
+        mdr_device_t* device,
+        mdr_packet_eqebb_eq_preset_id_t preset_id,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.eq)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_EQEBB_SET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .eqebb_set_param = {
+            .inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ,
+            .eq = {
+                .preset_id = preset_id,
+                .num_levels = 0,
+                .levels = NULL,
+            },
+        },
+    };
+
+    if (device->supported_functions.eq_non_customizable)
+    {
+        request_packet.data.eqebb_set_param.inquired_type
+            = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE;
+    }
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true,
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+int mdr_device_set_eq_levels(
+        mdr_device_t* device,
+        uint8_t num_levels,
+        uint8_t* levels,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.eq)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_EQEBB_SET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .eqebb_set_param = {
+            .inquired_type = MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ,
+            .eq = {
+                .preset_id = MDR_PACKET_EQEBB_EQ_PRESET_ID_UNSPECIFIED,
+                .num_levels = num_levels,
+                .levels = levels,
+            },
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+void mdr_device_setting_get_auto_power_off_timeouts_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+                packet->data.system_ret_capability.auto_power_off.element_id_count,
+                packet->data.system_ret_capability.auto_power_off.element_ids,
+                callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_setting_get_auto_power_off_timeouts(
+        mdr_device_t* device,
+        void (*result)(uint8_t timeout_count,
+                       mdr_packet_system_auto_power_off_element_id_t* timeouts,
+                       void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.auto_power_off)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_SYSTEM_GET_CAPABILITY;
+
+    request_packet.data = (mdr_packet_data_t){
+        .system_get_param = {
+            .inquired_type = MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF,
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_SYSTEM_RET_CAPABILITY,
+                .extra = request_packet.data.system_get_param.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_setting_get_auto_power_off_timeouts_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+void mdr_device_setting_get_auto_power_off_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+                packet->data.system_ret_param.auto_power_off.element_id
+                    != MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_DISABLE,
+                packet->data.system_ret_param.auto_power_off
+                    .select_time_element_id,
+                callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_setting_get_auto_power_off(
+        mdr_device_t* device,
+        void (*result)(bool enabled,
+                       mdr_packet_system_auto_power_off_element_id_t time,
+                       void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.auto_power_off)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_SYSTEM_GET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .system_get_param = {
+            .inquired_type = MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF,
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_SYSTEM_RET_PARAM,
+                .extra = request_packet.data.system_get_param.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_setting_get_auto_power_off_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+void mdr_device_setting_subscribe_auto_power_off_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        subscription->user_result_callback(
+                packet->data.system_ntfy_param.auto_power_off.element_id
+                    != MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_DISABLE,
+                packet->data.system_ntfy_param.auto_power_off
+                    .select_time_element_id,
+                subscription->user_data);
+    }
+}
+
+void* mdr_device_setting_subscribe_auto_power_off(
+        mdr_device_t* device,
+        void (*update)(bool enabled,
+                       mdr_packet_system_auto_power_off_element_id_t time,
+                       void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.auto_power_off)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return NULL;
+    }
+
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_SYSTEM_NTFY_PARAM,
+                .extra = MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF,
+                .only_ack = false,
+            },
+            mdr_device_setting_subscribe_auto_power_off_update,
+            (void (*)()) update,
+            user_data);
+}
+
+int mdr_device_setting_disable_auto_power_off(
+        mdr_device_t* device,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.auto_power_off)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_SYSTEM_SET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .system_set_param = {
+            .inquired_type = MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF,
+            .auto_power_off = {
+                .parameter_type = MDR_PACKET_SYSTEM_AUTO_POWER_OFF_PARAMETER_TYPE_ACTIVE_AND_SELECT_TIME_ID,
+                .element_id = MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_DISABLE,
+                .select_time_element_id
+                    = MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_DISABLE,
+            },
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+int mdr_device_setting_enable_auto_power_off(
+        mdr_device_t* device,
+        mdr_packet_system_auto_power_off_element_id_t time,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.auto_power_off)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_SYSTEM_SET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .system_set_param = {
+            .inquired_type = MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF,
+            .auto_power_off = {
+                .parameter_type = MDR_PACKET_SYSTEM_AUTO_POWER_OFF_PARAMETER_TYPE_ACTIVE_AND_SELECT_TIME_ID,
+                .element_id = MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_WHEN_REMOVED_FROM_EARS,
+                .select_time_element_id = time,
+            },
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}

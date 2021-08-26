@@ -59,15 +59,15 @@ typedef enum PACKED
     // MDR_PACKET_COMMON_GET_BLUETOOTH_DEVICE_INFO = 0x1c,
     // MDR_PACKET_COMMON_RET_BLUETOOTH_DEVICE_INFO = 0x1d,
 
-    // MDR_PACKET_COMMON_SET_POWER_OFF             = 0x22,
+    MDR_PACKET_COMMON_SET_POWER_OFF             = 0x22,
 
-    // MDR_PACKET_COMMON_GET_CONNECTION_STATUS     = 0x24,
-    // MDR_PACKET_COMMON_RET_CONNECTION_STATUS     = 0x25,
-    // MDR_PACKET_COMMON_NTFY_CONNECTION_STATUS    = 0x27,
+    MDR_PACKET_COMMON_GET_CONNECTION_STATUS     = 0x24,
+    MDR_PACKET_COMMON_RET_CONNECTION_STATUS     = 0x25,
+    MDR_PACKET_COMMON_NTFY_CONNECTION_STATUS    = 0x27,
 
     // MDR_PACKET_COMMON_GET_CONCIERGE_DATA        = 0x28,
     // MDR_PACKET_COMMON_RET_CONCIERGE_DATA        = 0x29,
-    //
+
     // MDR_PACKET_COMMON_SET_LINK_CONTROL          = 0x2e,
     // MDR_PACKET_COMMON_NTFY_LINK_CONTROL         = 0x2f,
 
@@ -94,7 +94,7 @@ typedef enum PACKED
     MDR_PACKET_EQEBB_GET_PARAM                  = 0x56,
     MDR_PACKET_EQEBB_RET_PARAM                  = 0x57,
     MDR_PACKET_EQEBB_SET_PARAM                  = 0x58,
-    // MDR_PACKET_EQEBB_NTFY_PARAM                 = 0x59,
+    MDR_PACKET_EQEBB_NTFY_PARAM                 = 0x59,
     // MDR_PACKET_EQEBB_GET_EXTENDED_INFO          = 0x5a,
     // MDR_PACKET_EQEBB_RET_EXTENDED_INFO          = 0x5b,
 
@@ -184,7 +184,7 @@ typedef enum PACKED
     MDR_PACKET_SYSTEM_GET_PARAM                 = 0xf6,
     MDR_PACKET_SYSTEM_RET_PARAM                 = 0xf7,
     MDR_PACKET_SYSTEM_SET_PARAM                 = 0xf8,
-    // MDR_PACKET_SYSTEM_NTFY_PARAM                = 0xf9,
+    MDR_PACKET_SYSTEM_NTFY_PARAM                = 0xf9,
     // MDR_PACKET_SYSTEM_GET_EXTENDED_PARAM        = 0xfa,
     // MDR_PACKET_SYSTEM_RET_EXTENDED_PARAM        = 0xfb,
     // MDR_PACKET_SYSTEM_SET_EXTENDED_PARAM        = 0xfc,
@@ -198,6 +198,8 @@ mdr_packet_type_t;
 #include "mdr/packet/connect_device_info.h"
 #include "mdr/packet/connect_support_function.h"
 #include "mdr/packet/common_battery_level.h"
+#include "mdr/packet/common_power_off.h"
+#include "mdr/packet/common_connection_status.h"
 #include "mdr/packet/eqebb.h"
 #include "mdr/packet/ncasm.h"
 #include "mdr/packet/system.h"
@@ -219,6 +221,12 @@ typedef union PACKED
     mdr_packet_common_ret_battery_level_t  common_ret_battery_level;
     mdr_packet_common_ntfy_battery_level_t common_ntfy_battery_level;
 
+    mdr_packet_common_set_power_off_t common_set_power_off;
+
+    mdr_packet_common_get_connection_status_t  common_get_connection_status;
+    mdr_packet_common_ret_connection_status_t  common_ret_connection_status;
+    mdr_packet_common_ntfy_connection_status_t common_ntfy_connection_status;
+
     // EQEBB
     mdr_packet_eqebb_get_capability_t eqebb_get_capability;
     mdr_packet_eqebb_ret_capability_t eqebb_ret_capability;
@@ -226,6 +234,7 @@ typedef union PACKED
     mdr_packet_eqebb_get_param_t eqebb_get_param;
     mdr_packet_eqebb_ret_param_t eqebb_ret_param;
     mdr_packet_eqebb_set_param_t eqebb_set_param;
+    mdr_packet_eqebb_ntfy_param_t eqebb_ntfy_param;
 
     // Noise Cancelling - Ambient Sound Mode (NCASM)
     mdr_packet_ncasm_get_param_t ncasm_get_param;
@@ -240,6 +249,7 @@ typedef union PACKED
     mdr_packet_system_get_param_t system_get_param;
     mdr_packet_system_ret_param_t system_ret_param;
     mdr_packet_system_set_param_t system_set_param;
+    mdr_packet_system_ntfy_param_t system_ntfy_param;
 }
 mdr_packet_data_t;
 
@@ -261,6 +271,8 @@ mdr_packet_t* mdr_packet_from_frame(mdr_frame_t*);
 
 /*
  * Encode an MDR packet into a frame.
+ *
+ * May return NULL with errno set to ENOMEM.
  */
 mdr_frame_t* mdr_packet_to_frame(mdr_packet_t*);
 

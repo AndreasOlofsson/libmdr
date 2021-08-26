@@ -201,4 +201,19 @@ typedef struct PACKED mdr_packet_eqebb_set_param
 }
 mdr_packet_eqebb_set_param_t;
 
+typedef struct PACKED mdr_packet_eqebb_ntfy_param
+{
+    mdr_packet_eqebb_inquired_type_t inquired_type;
+
+    union PACKED
+    {
+        mdr_packet_eqebb_param_eq_t eq;
+
+        mdr_packet_eqebb_param_ebb_t ebb;
+    };
+}
+mdr_packet_eqebb_ntfy_param_t;
+
+const char* mdr_packet_eqebb_get_preset_name(mdr_packet_eqebb_eq_preset_id_t);
+
 #endif /* __MDR_PACKET_EQEBB_H__ */

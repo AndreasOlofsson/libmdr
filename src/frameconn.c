@@ -20,7 +20,7 @@
  * along with libmdr. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "mdr/connection.h"
+#include "mdr/frameconn.h"
 
 #include "mdr/errors.h"
 
@@ -36,7 +36,7 @@
 #define FRAME_BUF_SIZE 8192
 #endif
 
-struct mdr_connection
+struct mdr_frameconn
 {
     int sock;
     uint8_t read_buf[FRAME_BUF_SIZE];
@@ -45,23 +45,19 @@ struct mdr_connection
 
     uint8_t write_buf[FRAME_BUF_SIZE];
     size_t write_buf_len;
-
-    bool non_blocking;
 };
 
-mdr_connection_t* mdr_connect(bdaddr_t addr, uint8_t channel)
+mdr_frameconn_t* mdr_frameconn_connect(bdaddr_t addr, uint8_t channel)
 {
-    mdr_connection_t* connection = malloc(sizeof(struct mdr_connection));
+    mdr_frameconn_t* connection = malloc(sizeof(mdr_frameconn_t));
     if (connection == NULL) return NULL;
 
-    int sock;
     struct sockaddr_rc sock_addr;
-
     sock_addr.rc_family = AF_BLUETOOTH;
     sock_addr.rc_channel = channel;
     sock_addr.rc_bdaddr = addr;
 
-    sock = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
+    int sock = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
     if (sock < 0) return NULL;
 
     if (connect(sock,
@@ -75,16 +71,13 @@ mdr_connection_t* mdr_connect(bdaddr_t addr, uint8_t channel)
     connection->read_buf_len = 0;
     connection->read_started = false;
     connection->write_buf_len = 0;
-    connection->non_blocking = false;
 
     return connection;
 }
 
-mdr_connection_t* mdr_connection_new(int sock)
+mdr_frameconn_t* mdr_frameconn_new(int sock)
 {
-    mdr_connection_t *connection;
-
-    connection = malloc(sizeof(struct mdr_connection));
+    mdr_frameconn_t *connection = malloc(sizeof(mdr_frameconn_t));
     if (connection == NULL) return NULL;
 
     connection->sock = sock;
@@ -92,38 +85,32 @@ mdr_connection_t* mdr_connection_new(int sock)
     connection->read_buf_len = 0;
     connection->read_started = false;
     connection->write_buf_len = 0;
-    connection->non_blocking = fcntl(sock, F_GETFD) & O_NONBLOCK;
 
     return connection;
 }
 
-int mdr_connection_get_socket(mdr_connection_t* connection)
+int mdr_frameconn_get_socket(mdr_frameconn_t* connection)
 {
     return connection->sock;
 }
 
-bool mdr_connection_waiting_read(mdr_connection_t* connection)
-{
-    return connection->read_buf_len < FRAME_BUF_SIZE;
-}
-
-bool mdr_connection_waiting_write(mdr_connection_t* connection)
+bool mdr_frameconn_waiting_write(mdr_frameconn_t* connection)
 {
     return connection->write_buf_len > 0;
 }
 
-void mdr_connection_close(mdr_connection_t* connection)
+void mdr_frameconn_close(mdr_frameconn_t* connection)
 {
     close(connection->sock);
     free(connection);
 }
 
-void mdr_connection_free(mdr_connection_t* connection)
+void mdr_frameconn_free(mdr_frameconn_t* connection)
 {
     free(connection);
 }
 
-int mdr_connection_flush_write(mdr_connection_t* connection)
+int mdr_frameconn_flush_write(mdr_frameconn_t* connection)
 {
     size_t i = 0;
     while (i < connection->write_buf_len)
@@ -167,8 +154,8 @@ write_bytes:
  * Returns a pointer to an allocated frame or returns NULL and sets
  * errno to MDR_E_INVALID_FRAME if the frame is invalid.
  */
-static mdr_frame_t* mdr_connection_unescape_frame(uint8_t* escaped,
-                                                  size_t escaped_len)
+static mdr_frame_t* mdr_frameconn_unescape_frame(uint8_t* escaped,
+                                                 size_t escaped_len)
 {
     uint8_t* frame_bytes = malloc(escaped_len);
 
@@ -219,7 +206,7 @@ static mdr_frame_t* mdr_connection_unescape_frame(uint8_t* escaped,
  * If the buffer contained an invalid frame errno is set
  * to MDR_E_INVALID_FRAME, otherwise it is set to 0.
  */
-static mdr_frame_t* mdr_connection_next_frame(mdr_connection_t* connection)
+static mdr_frame_t* mdr_frameconn_next_frame(mdr_frameconn_t* connection)
 {
     for (size_t i = 0; i < connection->read_buf_len; i++)
     {
@@ -236,7 +223,7 @@ static mdr_frame_t* mdr_connection_next_frame(mdr_connection_t* connection)
               && connection->read_started)
         {
             mdr_frame_t* frame =
-                mdr_connection_unescape_frame(connection->read_buf, i);
+                mdr_frameconn_unescape_frame(connection->read_buf, i);
 
             memmove(connection->read_buf,
                     &connection->read_buf[i+1],
@@ -260,11 +247,11 @@ static mdr_frame_t* mdr_connection_next_frame(mdr_connection_t* connection)
     return NULL;
 }
 
-mdr_frame_t* mdr_connection_read_frame(mdr_connection_t* connection)
+mdr_frame_t* mdr_frameconn_read_frame(mdr_frameconn_t* connection)
 {
     while (1)
     {
-        mdr_frame_t* frame = mdr_connection_next_frame(connection);
+        mdr_frame_t* frame = mdr_frameconn_next_frame(connection);
         if (frame != NULL) return frame;
 
         if (errno != 0)
@@ -300,12 +287,12 @@ read_bytes:
     }
 }
 
-static uint8_t* mdr_connection_escape_frame(mdr_frame_t* frame,
-                                            size_t* escaped_len)
+static uint8_t* mdr_frameconn_escape_frame(mdr_frame_t* frame,
+                                           size_t* escaped_len)
 {
-    size_t frame_len = 7 + frame->payload_length;
+    size_t frame_len = MDR_FRAME_EMPTY_LEN + frame->payload_length;
 
-    frame->payload_length = htonl(frame->payload_length);
+    uint32_t payload_length_bytes = htonl(frame->payload_length);
 
     uint8_t* frame_bytes = (uint8_t*) frame;
 
@@ -328,7 +315,15 @@ static uint8_t* mdr_connection_escape_frame(mdr_frame_t* frame,
 
     for (read = 0; read < frame_len; read++, write++)
     {
-        uint8_t b = frame_bytes[read];
+        uint8_t b;
+        if (read >= 2 && read < 6)
+        {
+            b = ((uint8_t*) &payload_length_bytes)[read - 2];
+        }
+        else
+        {
+            b = frame_bytes[read];
+        }
 
         switch (b)
         {
@@ -362,13 +357,13 @@ static uint8_t* mdr_connection_escape_frame(mdr_frame_t* frame,
     return escaped;
 }
 
-int mdr_connection_write_frame(mdr_connection_t* connection,
-                               mdr_frame_t* frame)
+int mdr_frameconn_write_frame(mdr_frameconn_t* connection,
+                              mdr_frame_t* frame)
 {
     // Try to flush the buffer to free up some room
     // for the new frame if needed.
     {
-        int result = mdr_connection_flush_write(connection);
+        int result = mdr_frameconn_flush_write(connection);
         if (result < 0 && !(errno == EAGAIN || errno == EINVAL))
         {
             return -1;
@@ -376,21 +371,17 @@ int mdr_connection_write_frame(mdr_connection_t* connection,
     }
 
     size_t escaped_len;
-    uint8_t* escaped = mdr_connection_escape_frame(frame, &escaped_len);
-    free(frame);
+    uint8_t* escaped = mdr_frameconn_escape_frame(frame, &escaped_len);
     if (escaped == NULL) return -1;
 
-    if (connection->non_blocking)
+    if (FRAME_BUF_SIZE - connection->write_buf_len < escaped_len)
     {
-        if (FRAME_BUF_SIZE - connection->write_buf_len < escaped_len)
-        {
-            // It may be possible to write some bytes and buffer the rest
-            // but it's not possible to know if enough bytes can be sent
-            // right away. So instead EWOULDBLOCK is returned.
-            free(escaped);
-            errno = EWOULDBLOCK;
-            return -1;
-        }
+        // It may be possible to write some bytes and buffer the rest
+        // but it's not possible to know if enough bytes can be sent
+        // right away. So instead EWOULDBLOCK is returned.
+        free(escaped);
+        errno = EWOULDBLOCK;
+        return -1;
     }
 
     size_t written = 0;

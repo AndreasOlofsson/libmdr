@@ -31,6 +31,9 @@
 
 void mdr_packet_free(mdr_packet_t* packet)
 {
+    if (packet == NULL)
+        return;
+
     switch (packet->type)
     {
         case MDR_PACKET_CONNECT_GET_PROTOCOL_INFO:
@@ -73,6 +76,14 @@ void mdr_packet_free(mdr_packet_t* packet)
         case MDR_PACKET_COMMON_NTFY_BATTERY_LEVEL:
             break;
 
+        case MDR_PACKET_COMMON_SET_POWER_OFF:
+            break;
+
+        case MDR_PACKET_COMMON_GET_CONNECTION_STATUS:
+        case MDR_PACKET_COMMON_RET_CONNECTION_STATUS:
+        case MDR_PACKET_COMMON_NTFY_CONNECTION_STATUS:
+            break;
+
         case MDR_PACKET_EQEBB_GET_CAPABILITY:
             break;
 
@@ -81,12 +92,16 @@ void mdr_packet_free(mdr_packet_t* packet)
             {
                 case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ:
                 case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE:
-                    for (int i = 0;
-                         i < packet->data.eqebb_ret_capability.eq.num_presets;
-                         i++)
+                    if (packet->data.eqebb_ret_capability.eq.presets != NULL)
                     {
-                        free(packet->data.eqebb_ret_capability.eq.presets[i]
-                                .name);
+                        for (int i = 0;
+                             i < packet->data.eqebb_ret_capability.eq
+                                    .num_presets;
+                             i++)
+                        {
+                            free(packet->data.eqebb_ret_capability.eq.presets[i]
+                                    .name);
+                        }
                     }
                     free(packet->data.eqebb_ret_capability.eq.presets);
                     break;
@@ -125,10 +140,131 @@ void mdr_packet_free(mdr_packet_t* packet)
             }
             break;
 
+        case MDR_PACKET_EQEBB_NTFY_PARAM:
+            switch (packet->data.eqebb_ntfy_param.inquired_type)
+            {
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ:
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE:
+                    free(packet->data.eqebb_ntfy_param.eq.levels);
+                    break;
+
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_EBB:
+                    break;
+            }
+            break;
+
         case MDR_PACKET_NCASM_GET_PARAM:
         case MDR_PACKET_NCASM_SET_PARAM:
         case MDR_PACKET_NCASM_RET_PARAM:
         case MDR_PACKET_NCASM_NTFY_PARAM:
+            break;
+
+        case MDR_PACKET_SYSTEM_GET_CAPABILITY:
+        case MDR_PACKET_SYSTEM_RET_CAPABILITY:
+            switch (packet->data.system_ret_capability.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    break;
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    free(packet->data.system_ret_capability
+                            .auto_power_off.element_ids);
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    break;
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    if (packet->data.system_ret_capability.assignable_settings
+                            .capability_keys != NULL)
+                    {
+                        for (int i = 0;
+                             i < packet->data.system_ret_capability
+                                     .assignable_settings.num_capability_keys;
+                             i++)
+                        {
+                            if (packet->data.system_ret_capability
+                                    .assignable_settings.capability_keys[i]
+                                    .capability_presets != NULL)
+                            {
+                                for (int j = 0;
+                                     j < packet->data.system_ret_capability
+                                            .assignable_settings.capability_keys[i]
+                                            .num_capability_presets;
+                                     j++)
+                                {
+                                    free(packet->data.system_ret_capability
+                                            .assignable_settings.capability_keys[i]
+                                            .capability_presets[j]
+                                            .capability_actions);
+                                }
+                            }
+
+                            free(packet->data.system_ret_capability
+                                    .assignable_settings.capability_keys[i]
+                                    .capability_presets);
+                        }
+                    }
+
+                    free(packet->data.system_ret_capability
+                            .assignable_settings.capability_keys);
+                    break;
+            }
+            break;
+
+        case MDR_PACKET_SYSTEM_GET_PARAM:
+            break;
+
+        case MDR_PACKET_SYSTEM_RET_PARAM:
+            switch (packet->data.system_ret_param.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    break;
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    free(packet->data.system_ret_param
+                            .assignable_settings.presets);
+                    break;
+            }
+            break;
+
+        case MDR_PACKET_SYSTEM_SET_PARAM:
+            switch (packet->data.system_set_param.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    break;
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    free(packet->data.system_set_param
+                            .assignable_settings.presets);
+                    break;
+            }
+            break;
+
+        case MDR_PACKET_SYSTEM_NTFY_PARAM:
+            switch (packet->data.system_ntfy_param.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    break;
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    free(packet->data.system_ntfy_param
+                            .assignable_settings.presets);
+                    break;
+            }
             break;
     }
 
@@ -183,7 +319,7 @@ mdr_packet_t* mdr_packet_from_frame(mdr_frame_t* frame)
     COPY_TO_PACKET(len); \
     return packet;
 
-    mdr_packet_t* packet;
+    mdr_packet_t* packet = NULL;
 
     ASSERT_LEN_AT_LEAST(1);
 
@@ -339,6 +475,52 @@ mdr_packet_t* mdr_packet_from_frame(mdr_frame_t* frame)
                             + sizeof(mdr_packet_battery_status_t));
             }
 
+        case MDR_PACKET_COMMON_SET_POWER_OFF:
+            ASSERT_LEN_AT_LEAST(1
+                    + sizeof(mdr_packet_common_set_power_off_t));
+            ASSERT_ITH_EQUALS(1,
+                    MDR_PACKET_COMMON_POWER_OFF_INQUIRED_TYPE_FIXED_VALUE);
+            ASSERT_ITH_EQUALS(2,
+                    MDR_PACKET_COMMON_POWER_OFF_SETTING_VALUE_USER_POWER_OFF);
+
+            RETURN_FIXED_LENGTH_PACKET(1
+                    + sizeof(mdr_packet_common_set_power_off_t));
+
+        case MDR_PACKET_COMMON_GET_CONNECTION_STATUS:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT,
+                    MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT);
+
+            RETURN_FIXED_LENGTH_PACKET(1
+                    + sizeof(mdr_packet_common_get_connection_status_t));
+
+        case MDR_PACKET_COMMON_RET_CONNECTION_STATUS:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT,
+                    MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT);
+
+            switch (payload[1])
+            {
+                case MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_connection_status_left_right_status_t));
+            }
+
+        case MDR_PACKET_COMMON_NTFY_CONNECTION_STATUS:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT,
+                    MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT);
+
+            switch (payload[1])
+            {
+                case MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_connection_status_left_right_status_t));
+            }
+
         case MDR_PACKET_EQEBB_GET_CAPABILITY:
             ASSERT_LEN_AT_LEAST(2);
             ASSERT_ITH_IN_RANGE(1,
@@ -467,6 +649,30 @@ mdr_packet_t* mdr_packet_from_frame(mdr_frame_t* frame)
                             + sizeof(mdr_packet_eqebb_param_ebb_t));
             }
 
+        case MDR_PACKET_EQEBB_NTFY_PARAM:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ,
+                    MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE);
+
+            switch (payload[1])
+            {
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ:
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE:
+                    ALLOC_PACKET(2 + sizeof(mdr_packet_eqebb_param_eq_t));
+                    COPY_TO_PACKET(4);
+                    READ_VARIABLE_LEN(
+                            packet->data.eqebb_ntfy_param.eq.levels,
+                            4,
+                            packet->data.eqebb_ntfy_param.eq.num_levels,
+                            uint8_t);
+                    return packet;
+
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_EBB:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_eqebb_param_ebb_t));
+            }
+
         case MDR_PACKET_NCASM_GET_PARAM:
             ASSERT_LEN_AT_LEAST(2);
             ASSERT_ITH_IN_RANGE(1,
@@ -497,6 +703,349 @@ mdr_packet_t* mdr_packet_from_frame(mdr_frame_t* frame)
                 case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
                     RETURN_FIXED_LENGTH_PACKET(2
                             + sizeof(mdr_packet_ncasm_param_asm_t));
+            }
+
+        case MDR_PACKET_SYSTEM_GET_CAPABILITY:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS);
+            RETURN_FIXED_LENGTH_PACKET(1
+                    + sizeof(mdr_packet_system_get_capability_t));
+
+        case MDR_PACKET_SYSTEM_RET_CAPABILITY:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS);
+
+            switch (payload[1])
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    ASSERT_LEN_AT_LEAST(2
+                            + sizeof(mdr_packet_system_capability_vibrator_t));
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_capability_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    ASSERT_LEN_AT_LEAST(2
+                            + sizeof(mdr_packet_system_capability_power_saving_mode_t));
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_capability_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    ASSERT_LEN_AT_LEAST(2
+                            + sizeof(mdr_packet_system_control_by_wearing_setting_type_t));
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_control_by_wearing_setting_type_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    ASSERT_LEN_AT_LEAST(3);
+                    ASSERT_LEN_AT_LEAST(3 + payload[2]);
+
+                    for (int i = 0; i < payload[2]; i++)
+                    {
+                        if (!(
+                            payload[3+i] < MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_IN_180_MIN
+                            || payload[3+i] == MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_WHEN_REMOVED_FROM_EARS
+                            || payload[3+i] == MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_DISABLE))
+                        {
+                            INVALID_FRAME;
+                        }
+                    }
+
+                    ALLOC_PACKET(2 + sizeof(mdr_packet_system_capability_auto_power_off_t));
+                    COPY_TO_PACKET(3);
+                    READ_VARIABLE_LEN(
+                            packet->data.system_ret_capability.auto_power_off.element_ids,
+                            3,
+                            packet->data.system_ret_capability.auto_power_off.element_id_count,
+                            mdr_packet_system_auto_power_off_element_id_t);
+
+                    return packet;
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_capability_smart_talking_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                {
+                    ALLOC_PACKET(2
+                            + sizeof(mdr_packet_system_capability_assignable_settings_t));
+                    COPY_TO_PACKET(3);
+
+                    mdr_packet_system_capability_assignable_settings_t*
+                        assignable_settings
+                            = &packet->data.system_ret_capability
+                                .assignable_settings;
+
+                    assignable_settings->capability_keys
+                        = malloc(assignable_settings->num_capability_keys
+                                * sizeof(mdr_packet_system_assignable_settings_capability_key_t*));
+
+                    if (assignable_settings->capability_keys != NULL)
+                    {
+                        free(packet);
+                        return NULL;
+                    }
+
+                    int pos = 3;
+                    for (int i = 0;
+                         i < assignable_settings->num_capability_keys;
+                         i++)
+                    {
+                        const int key_fixed_size
+                            = sizeof(mdr_packet_system_assignable_settings_key_t)
+                            + sizeof(mdr_packet_system_assignable_settings_key_type_t)
+                            + sizeof(mdr_packet_system_assignable_settings_preset_t)
+                            + sizeof(uint8_t);
+
+                        ASSERT_LEN_AT_LEAST(pos + key_fixed_size);
+
+                        mdr_packet_system_assignable_settings_capability_key_t*
+                            key = &assignable_settings->capability_keys[i];
+
+                        memcpy(key,
+                               &payload[pos],
+                               key_fixed_size);
+
+                        pos += key_fixed_size;
+
+                        key->capability_presets
+                            = malloc(key->num_capability_presets
+                                * sizeof(mdr_packet_system_assignable_settings_capability_preset_t));
+
+                        if (key->capability_presets == NULL)
+                        {
+                            for (int x = 0;
+                                 x < i;
+                                 x++)
+                            {
+                                for (int y = 0;
+                                     y < assignable_settings
+                                            ->capability_keys[x]
+                                            .num_capability_presets;
+                                     y++)
+                                {
+                                    free(assignable_settings
+                                            ->capability_keys[x]
+                                            .capability_presets[y]
+                                            .capability_actions);
+                                }
+                                free(assignable_settings
+                                        ->capability_keys[x]
+                                        .capability_presets);
+                            }
+                            free(assignable_settings->capability_keys);
+                            free(packet);
+                            return NULL;
+                        }
+
+                        for (int j = 0;
+                             j < key->num_capability_presets;
+                             j++)
+                        {
+                            const int preset_fixed_size
+                                = sizeof(mdr_packet_system_assignable_settings_preset_t)
+                                + sizeof(uint8_t);
+
+                            // TODO replace asserts
+                            ASSERT_LEN_AT_LEAST(pos + preset_fixed_size);
+
+                            mdr_packet_system_assignable_settings_capability_preset_t*
+                                preset = &key->capability_presets[j];
+
+                            memcpy(preset,
+                                   &payload[pos],
+                                   preset_fixed_size);
+
+                            pos += preset_fixed_size;
+
+                            ASSERT_LEN_AT_LEAST(pos
+                                    + preset->num_capability_actions
+                                    * sizeof(mdr_packet_system_assignable_settings_capability_caption_t));
+
+                            preset->capability_actions = malloc(
+                                    preset->num_capability_actions
+                                    * sizeof(mdr_packet_system_assignable_settings_capability_caption_t));
+
+                            if (preset->capability_actions == NULL)
+                            {
+                                for (int x = 0;
+                                     x < j;
+                                     x++)
+                                {
+                                    free(assignable_settings
+                                            ->capability_keys[i]
+                                            .capability_presets[j]
+                                            .capability_actions);
+                                }
+
+                                free(assignable_settings
+                                        ->capability_keys[i]
+                                        .capability_presets);
+
+                                for (int x = 0;
+                                     x < i;
+                                     x++)
+                                {
+                                    for (int y = 0;
+                                         y < assignable_settings
+                                                ->capability_keys[x]
+                                                .num_capability_presets;
+                                         y++)
+                                    {
+                                        free(assignable_settings
+                                                ->capability_keys[x]
+                                                .capability_presets[y]
+                                                .capability_actions);
+                                    }
+                                    free(assignable_settings
+                                            ->capability_keys[x]
+                                            .capability_presets);
+                                }
+                                free(assignable_settings->capability_keys);
+                                free(packet);
+                                return NULL;
+                            }
+
+                            memcpy(&preset->capability_actions,
+                                   &payload[pos],
+                                   preset->num_capability_actions
+                                       * sizeof(mdr_packet_system_assignable_settings_capability_caption_t));
+
+                            pos += preset->num_capability_actions
+                                * sizeof(mdr_packet_system_assignable_settings_capability_caption_t);
+                        }
+                    }
+
+                    return packet;
+                }
+            }
+
+        case MDR_PACKET_SYSTEM_GET_PARAM:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS);
+            RETURN_FIXED_LENGTH_PACKET(1
+                    + sizeof(mdr_packet_system_get_param_t));
+
+        case MDR_PACKET_SYSTEM_RET_PARAM:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS);
+
+            switch (payload[1])
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_control_by_wearing_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_auto_power_off_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_smart_talking_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    ALLOC_PACKET(2 + sizeof(mdr_packet_system_param_assignable_settings_t));
+                    COPY_TO_PACKET(3);
+                    READ_VARIABLE_LEN(
+                        packet->data.system_ret_param.assignable_settings.presets,
+                        3,
+                        packet->data.system_ret_param.assignable_settings.num_presets,
+                        mdr_packet_system_assignable_settings_preset_t);
+                    return packet;
+            }
+
+        case MDR_PACKET_SYSTEM_SET_PARAM:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS);
+
+            switch (payload[1])
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_control_by_wearing_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_auto_power_off_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_smart_talking_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    ALLOC_PACKET(2 + sizeof(mdr_packet_system_param_assignable_settings_t));
+                    COPY_TO_PACKET(3);
+                    READ_VARIABLE_LEN(
+                        packet->data.system_set_param.assignable_settings.presets,
+                        3,
+                        packet->data.system_set_param.assignable_settings.num_presets,
+                        mdr_packet_system_assignable_settings_preset_t);
+                    return packet;
+            }
+
+        case MDR_PACKET_SYSTEM_NTFY_PARAM:
+            ASSERT_LEN_AT_LEAST(2);
+            ASSERT_ITH_IN_RANGE(1,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR,
+                    MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS);
+
+            switch (payload[1])
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_control_by_wearing_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_auto_power_off_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_PACKET(2
+                            + sizeof(mdr_packet_system_param_smart_talking_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    ALLOC_PACKET(2 + sizeof(mdr_packet_system_param_assignable_settings_t));
+                    COPY_TO_PACKET(3);
+                    READ_VARIABLE_LEN(
+                        packet->data.system_ntfy_param.assignable_settings.presets,
+                        3,
+                        packet->data.system_ntfy_param.assignable_settings.num_presets,
+                        mdr_packet_system_assignable_settings_preset_t);
+                    return packet;
             }
 
         default:
@@ -623,6 +1172,30 @@ mdr_frame_t* mdr_packet_to_frame(mdr_packet_t* packet)
                             + sizeof(mdr_packet_battery_status_left_right_t));
             }
 
+        case MDR_PACKET_COMMON_SET_POWER_OFF:
+            RETURN_FIXED_LENGTH_FRAME(1
+                    + sizeof(mdr_packet_common_set_power_off_t));
+
+        case MDR_PACKET_COMMON_GET_CONNECTION_STATUS:
+            RETURN_FIXED_LENGTH_FRAME(1
+                    + sizeof(mdr_packet_common_get_connection_status_t));
+
+        case MDR_PACKET_COMMON_RET_CONNECTION_STATUS:
+            switch (packet->data.common_ret_connection_status.inquired_type)
+            {
+                case MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_connection_status_left_right_status_t));
+            }
+
+        case MDR_PACKET_COMMON_NTFY_CONNECTION_STATUS:
+            switch (packet->data.common_ret_connection_status.inquired_type)
+            {
+                case MDR_PACKET_CONNECTION_STATUS_INQUIRED_TYPE_LEFT_RIGHT:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_connection_status_left_right_status_t));
+            }
+
         case MDR_PACKET_EQEBB_GET_CAPABILITY:
             RETURN_FIXED_LENGTH_FRAME(1
                     + sizeof(mdr_packet_eqebb_get_capability_t));
@@ -714,6 +1287,22 @@ mdr_frame_t* mdr_packet_to_frame(mdr_packet_t* packet)
                             + sizeof(mdr_packet_eqebb_param_ebb_t));
             }
 
+        case MDR_PACKET_EQEBB_NTFY_PARAM:
+            switch (packet->data.eqebb_set_param.inquired_type)
+            {
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ:
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ_NONCUSTOMIZABLE:
+                    ALLOC_FRAME(4 + packet->data.eqebb_ntfy_param.eq.num_levels);
+                    COPY_FRAME(4);
+                    memcpy(&mdr_frame_payload(frame)[4],
+                           packet->data.eqebb_ntfy_param.eq.levels,
+                           packet->data.eqebb_ntfy_param.eq.num_levels);
+                    return frame;
+
+                case MDR_PACKET_EQEBB_INQUIRED_TYPE_EBB:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_eqebb_param_ebb_t));
+            }
 
         case MDR_PACKET_NCASM_GET_PARAM:
             RETURN_FIXED_LENGTH_FRAME(1
@@ -735,6 +1324,222 @@ mdr_frame_t* mdr_packet_to_frame(mdr_packet_t* packet)
                 case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
                     RETURN_FIXED_LENGTH_FRAME(2
                             + sizeof(mdr_packet_ncasm_param_asm_t));
+            }
+
+        case MDR_PACKET_SYSTEM_GET_CAPABILITY:
+            RETURN_FIXED_LENGTH_FRAME(1
+                    + sizeof(mdr_packet_system_get_capability_t));
+
+        case MDR_PACKET_SYSTEM_RET_CAPABILITY:
+            switch (packet->data.system_ret_capability.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_capability_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_capability_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_capability_control_by_wearing_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    ALLOC_FRAME(3 + packet->data.system_ret_capability.auto_power_off.element_id_count);
+                    COPY_FRAME(3);
+                    memcpy(&mdr_frame_payload(frame)[3],
+                           packet->data.system_ret_capability.auto_power_off.element_ids,
+                           packet->data.system_ret_capability.auto_power_off.element_id_count);
+                    return frame;
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_capability_smart_talking_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                {
+                    mdr_packet_system_capability_assignable_settings_t*
+                        assignable_settings = &packet->data.system_ret_capability.assignable_settings;
+
+                    size_t frame_size = 3;
+
+                    frame_size += assignable_settings->num_capability_keys
+                        * (sizeof(mdr_packet_system_assignable_settings_capability_key_t)
+                               - sizeof(mdr_packet_system_assignable_settings_capability_preset_t*));
+
+                    for (int i = 0;
+                         i < assignable_settings->num_capability_keys;
+                         i++)
+                    {
+                        frame_size += assignable_settings->capability_keys[i].num_capability_presets
+                            * (sizeof(mdr_packet_system_assignable_settings_capability_preset_t)
+                                   - sizeof(mdr_packet_system_assignable_settings_capability_caption_t*));
+
+                        for (int j = 0;
+                             j < assignable_settings->capability_keys[i].num_capability_presets;
+                             j++)
+                        {
+                            frame_size += assignable_settings->capability_keys[i].capability_presets[j].num_capability_actions
+                                * sizeof(mdr_packet_system_assignable_settings_capability_caption_t);
+                        }
+                    }
+
+                    ALLOC_FRAME(frame_size);
+
+                    COPY_FRAME(3);
+                    int offset = 3;
+                    for (int i = 0;
+                         i < assignable_settings->num_capability_keys;
+                         i++)
+                    {
+                        memcpy(&mdr_frame_payload(frame)[offset],
+                               &assignable_settings->capability_keys[i],
+                               sizeof(mdr_packet_system_assignable_settings_capability_key_t)
+                                   - sizeof(mdr_packet_system_assignable_settings_capability_preset_t*));
+
+                        offset += sizeof(mdr_packet_system_assignable_settings_capability_key_t)
+                            - sizeof(mdr_packet_system_assignable_settings_capability_preset_t*);
+
+                        for (int j = 0;
+                             j < assignable_settings->capability_keys[i].num_capability_presets;
+                             j++)
+                        {
+                            memcpy(&mdr_frame_payload(frame)[offset],
+                                   &assignable_settings->capability_keys[i].capability_presets[j],
+                                   sizeof(mdr_packet_system_assignable_settings_capability_preset_t)
+                                       - sizeof(mdr_packet_system_assignable_settings_capability_caption_t*));
+
+                            offset += sizeof(mdr_packet_system_assignable_settings_capability_preset_t)
+                                - sizeof(mdr_packet_system_assignable_settings_capability_caption_t*);
+
+                            for (int k = 0;
+                                 k < assignable_settings->capability_keys[i].capability_presets[j].num_capability_actions;
+                                 k++)
+                            {
+                                memcpy(&mdr_frame_payload(frame)[offset],
+                                       &assignable_settings->capability_keys[i].capability_presets[j].capability_actions[k],
+                                       sizeof(mdr_packet_system_assignable_settings_capability_caption_t));
+
+                                offset += sizeof(mdr_packet_system_assignable_settings_capability_caption_t);
+                            }
+                        }
+                    }
+
+                    return frame;
+                }
+            }
+
+        case MDR_PACKET_SYSTEM_GET_PARAM:
+            RETURN_FIXED_LENGTH_FRAME(1
+                    + sizeof(mdr_packet_system_get_param_t));
+
+        case MDR_PACKET_SYSTEM_RET_PARAM:
+            switch (packet->data.system_ret_param.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_control_by_wearing_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_auto_power_off_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_smart_talking_mode_t));
+
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    ALLOC_FRAME(3 + packet->data.system_ret_param
+                            .assignable_settings.num_presets);
+                    COPY_FRAME(3);
+                    memcpy(&mdr_frame_payload(frame)[3],
+                           &packet->data.system_ret_param
+                                   .assignable_settings.num_presets,
+                           packet->data.system_ret_param
+                                   .assignable_settings.num_presets);
+                    return frame;
+            }
+
+        case MDR_PACKET_SYSTEM_SET_PARAM:
+            switch (packet->data.system_set_param.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_control_by_wearing_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_auto_power_off_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_smart_talking_mode_t));
+
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    ALLOC_FRAME(3 + packet->data.system_set_param
+                            .assignable_settings.num_presets);
+                    COPY_FRAME(3);
+                    memcpy(&mdr_frame_payload(frame)[3],
+                           &packet->data.system_set_param
+                                   .assignable_settings.num_presets,
+                           packet->data.system_set_param
+                                   .assignable_settings.num_presets);
+                    return frame;
+            }
+
+        case MDR_PACKET_SYSTEM_NTFY_PARAM:
+            switch (packet->data.system_ntfy_param.inquired_type)
+            {
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_vibrator_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_power_saving_mode_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_control_by_wearing_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_AUTO_POWER_OFF:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_auto_power_off_t));
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_SMART_TALKING_MODE:
+                    RETURN_FIXED_LENGTH_FRAME(2
+                            + sizeof(mdr_packet_system_param_smart_talking_mode_t));
+
+
+                case MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS:
+                    ALLOC_FRAME(3 + packet->data.system_ntfy_param
+                            .assignable_settings.num_presets);
+                    COPY_FRAME(3);
+                    memcpy(&mdr_frame_payload(frame)[3],
+                           &packet->data.system_ntfy_param
+                                   .assignable_settings.num_presets,
+                           packet->data.system_ntfy_param
+                                   .assignable_settings.num_presets);
+                    return frame;
             }
     }
 

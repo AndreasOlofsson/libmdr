@@ -20,8 +20,8 @@
  * along with libmdr. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef __MDR_PACKET_SUPPORT_FUNCTION_H__
-#define __MDR_PACKET_SUPPORT_FUNCTION_H__
+#ifndef __MDR_PACKET_CONNECT_SUPPORT_FUNCTION_H__
+#define __MDR_PACKET_CONNECT_SUPPORT_FUNCTION_H__
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -97,4 +97,4 @@ bool mdr_packet_support_function_contains(
         mdr_packet_connect_ret_support_function_t*,
         mdr_packet_support_function_type_t);
 
-#endif /* __MDR_PACKET_SUPPORT_FUNCTION_H__ */
+#endif /* __MDR_PACKET_CONNECT_SUPPORT_FUNCTION_H__ */

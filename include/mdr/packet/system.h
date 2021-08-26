@@ -30,7 +30,6 @@
 
 typedef enum PACKED mdr_packet_system_inquired_type
 {
-    MDR_PACKET_SYSTEM_INQUIRED_TYPE_NO_USE              = 0x00,
     MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR            = 0x01,
     MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE   = 0x02,
     MDR_PACKET_SYSTEM_INQUIRED_TYPE_CONTROL_BY_WEARING  = 0x03,
@@ -134,8 +133,8 @@ typedef enum PACKED mdr_packet_system_auto_power_off_element_id
     MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_IN_30_MIN              = 0x01,
     MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_IN_60_MIN              = 0x02,
     MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_IN_180_MIN             = 0x03,
-    MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_WHEN_REMOVED_FROM_EARS = 0x00,
-    MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_DISABLE                = 0x00,
+    MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_WHEN_REMOVED_FROM_EARS = 0x10,
+    MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_DISABLE                = 0x11,
 }
 mdr_packet_system_auto_power_off_element_id_t;
 
@@ -292,8 +291,12 @@ mdr_packet_system_assignable_settings_capability_caption_t;
 typedef struct PACKED mdr_packet_system_assignable_settings_capability_preset {
     mdr_packet_system_assignable_settings_preset_t preset;
 
+    // The app has a bug where if `num_capability_actions` if 0, the entire
+    // `mdr_packet_system_assignable_settings_capability_preset_t` is
+    // considered to have length 1 (rather then 2 which is correct) when read
+    // as part of `mdr_packet_system_assignable_settings_capability_key_t`.
     uint8_t num_capability_actions;
-    mdr_packet_system_assignable_settings_capability_caption_t capability_actions;
+    mdr_packet_system_assignable_settings_capability_caption_t* capability_actions;
 }
 mdr_packet_system_assignable_settings_capability_preset_t;
 
@@ -308,7 +311,7 @@ typedef struct PACKED mdr_packet_system_assignable_settings_capability_key
     // length 1 (rather then 4 which is correct) when read as part of
     // `mdr_packet_system_capability_assignable_settings`.
     uint8_t num_capability_presets;
-    mdr_packet_system_assignable_settings_capability_preset_t capability_presets;
+    mdr_packet_system_assignable_settings_capability_preset_t* capability_presets;
 }
 mdr_packet_system_assignable_settings_capability_key_t;
 
@@ -388,6 +391,22 @@ typedef struct PACKED mdr_packet_system_set_param
     };
 }
 mdr_packet_system_set_param_t;
+
+typedef struct PACKED mdr_packet_system_ntfy_param
+{
+    mdr_packet_system_inquired_type_t inquired_type;
+
+    union PACKED
+    {
+        mdr_packet_system_param_vibrator_t            vibrator;
+        mdr_packet_system_param_power_saving_mode_t   power_saving_mode;
+        mdr_packet_system_param_control_by_wearing_t  control_by_wearing;
+        mdr_packet_system_param_auto_power_off_t      auto_power_off;
+        mdr_packet_system_param_smart_talking_mode_t  smart_talking_mode;
+        mdr_packet_system_param_assignable_settings_t assignable_settings;
+    };
+}
+mdr_packet_system_ntfy_param_t;
 
 #endif /* __MDR_PACKET_SYSTEM_H__ */
 

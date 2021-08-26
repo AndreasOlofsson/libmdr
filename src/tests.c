@@ -36,7 +36,8 @@
         type v; \
         if ((size_t) &v.field - (size_t) &v != n) \
         { \
-            printf("Expected " #type " to have offset " #n ", got %ld.\n", \
+            printf("Expected field " #field " of type " #type \
+                    " to have offset " #n ", got %ld.\n", \
                     (size_t) &v.field - (size_t) &v); \
             exit(1); \
         } \
@@ -59,15 +60,15 @@ int main(int argc, char* argv[])
     ASSERT_OFFSET(mdr_packet_device_info_instruction_guide_t, guidance_categories, 1);
 
     ASSERT_SIZE(mdr_packet_connect_get_support_function_t, 1);
-    ASSERT_OFFSET(mdr_packet_connect_ret_support_function_t, function_types, 3);
+    ASSERT_OFFSET(mdr_packet_connect_ret_support_function_t, function_types, 2);
 
     ASSERT_SIZE(mdr_packet_common_get_battery_level_t, 1);
-    ASSERT_OFFSET(mdr_packet_common_ret_battery_level_t, battery, 2);
-    ASSERT_OFFSET(mdr_packet_common_ret_battery_level_t, left_right_battery, 2);
-    ASSERT_OFFSET(mdr_packet_common_ret_battery_level_t, cradle_battery, 2);
-    ASSERT_OFFSET(mdr_packet_common_ntfy_battery_level_t, battery, 2);
-    ASSERT_OFFSET(mdr_packet_common_ntfy_battery_level_t, left_right_battery, 2);
-    ASSERT_OFFSET(mdr_packet_common_ntfy_battery_level_t, cradle_battery, 2);
+    ASSERT_OFFSET(mdr_packet_common_ret_battery_level_t, battery, 1);
+    ASSERT_OFFSET(mdr_packet_common_ret_battery_level_t, left_right_battery, 1);
+    ASSERT_OFFSET(mdr_packet_common_ret_battery_level_t, cradle_battery, 1);
+    ASSERT_OFFSET(mdr_packet_common_ntfy_battery_level_t, battery, 1);
+    ASSERT_OFFSET(mdr_packet_common_ntfy_battery_level_t, left_right_battery, 1);
+    ASSERT_OFFSET(mdr_packet_common_ntfy_battery_level_t, cradle_battery, 1);
     ASSERT_SIZE(mdr_packet_battery_status_t, 2);
     ASSERT_SIZE(mdr_packet_battery_status_left_right_t, 4);
 }
