@@ -134,10 +134,10 @@ typedef enum PACKED
     // MDR_PACKET_PLAY_RET_STATUS                  = 0xa3,
     // MDR_PACKET_PLAY_SET_STATUS                  = 0xa4,
     // MDR_PACKET_PLAY_NTFY_STATUS                 = 0xa5,
-    // MDR_PACKET_PLAY_GET_PARAM                   = 0xa6,
-    // MDR_PACKET_PLAY_RET_PARAM                   = 0xa7,
-    // MDR_PACKET_PLAY_SET_PARAM                   = 0xa8,
-    // MDR_PACKET_PLAY_NTFY_PARAM                  = 0xa9,
+    MDR_PACKET_PLAY_GET_PARAM                   = 0xa6,
+    MDR_PACKET_PLAY_RET_PARAM                   = 0xa7,
+    MDR_PACKET_PLAY_SET_PARAM                   = 0xa8,
+    MDR_PACKET_PLAY_NTFY_PARAM                  = 0xa9,
 
     // MDR_PACKET_SPORTS_GET_CAPABILITY            = 0xb0,
     // MDR_PACKET_SPORTS_RET_CAPABILITY            = 0xb1,
@@ -202,6 +202,7 @@ mdr_packet_type_t;
 #include "mdr/packet/common_connection_status.h"
 #include "mdr/packet/eqebb.h"
 #include "mdr/packet/ncasm.h"
+#include "mdr/packet/play.h"
 #include "mdr/packet/system.h"
 
 typedef union PACKED
@@ -241,6 +242,12 @@ typedef union PACKED
     mdr_packet_ncasm_ret_param_t ncasm_ret_param;
     mdr_packet_ncasm_set_param_t ncasm_set_param;
     mdr_packet_ncasm_ntfy_param_t ncasm_ntfy_param;
+
+    // Play
+    mdr_packet_play_get_param_t play_get_param;
+    mdr_packet_play_ret_param_t play_ret_param;
+    mdr_packet_play_set_param_t play_set_param;
+    mdr_packet_play_ntfy_param_t play_ntfy_param;
 
     // System
     mdr_packet_system_get_capability_t system_get_capability;

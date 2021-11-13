@@ -39,6 +39,7 @@ typedef struct mdr_device_supported_functions
     bool eq;
     bool eq_non_customizable;
     bool auto_power_off;
+    bool playback_controller;
 }
 mdr_device_supported_functions_t;
 
@@ -518,6 +519,39 @@ int mdr_device_setting_disable_auto_power_off(
 int mdr_device_setting_enable_auto_power_off(
         mdr_device_t*,
         mdr_packet_system_auto_power_off_element_id_t time,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data);
+
+/*
+ * Get the current playback volume.
+ *
+ * The volume is in the range 0-30.
+ */
+int mdr_device_playback_get_volume(
+        mdr_device_t*,
+        void (*result)(uint8_t volume, void* user_data),
+        void (*error)(void* user_data),
+        void* user_data);
+
+/*
+ * Get the current playback volume.
+ *
+ * The volume is in the range 0-30.
+ */
+void* mdr_device_playback_subscribe_volume(
+        mdr_device_t*,
+        void (*update)(uint8_t volume, void* user_data),
+        void* user_data);
+
+/*
+ * Set the current playback volume.
+ *
+ * The volume is in the range 0-30.
+ */
+int mdr_device_playback_set_volume(
+        mdr_device_t*,
+        uint8_t volume,
         void (*success)(void* user_data),
         void (*error)(void* user_data),
         void* user_data);

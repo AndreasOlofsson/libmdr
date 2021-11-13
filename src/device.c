@@ -309,6 +309,9 @@ static void mdr_device_init_result_supported_function(mdr_packet_t* packet,
                 device->supported_functions.auto_power_off = true;
                 break;
 
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_PLAYBACK_CONTROLLER:
+                device->supported_functions.playback_controller = true;
+
             default:
                 break;
         }
@@ -1947,6 +1950,133 @@ int mdr_device_setting_enable_auto_power_off(
             &request_packet,
             (mdr_packetconn_reply_specifier_t){
                 .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_playback_get_volume_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+                packet->data.play_ret_param.volume,
+                callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_playback_get_volume(
+        mdr_device_t* device,
+        void (*result)(uint8_t volume, void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.playback_controller)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_PLAY_GET_PARAM;
+    request_packet.data = (mdr_packet_data_t){
+        .play_get_param = {
+            .inquired_type = MDR_PACKET_PLAY_INQUIRED_TYPE_PLAYBACK_CONTROLLER,
+            .detailed_data_type = MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME,
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_PLAY_RET_PARAM,
+                .extra = MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME,
+                .only_ack = false,
+            },
+            mdr_device_playback_get_volume_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_playback_subscribe_volume_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        subscription->user_result_callback(
+                packet->data.play_ntfy_param.volume,
+                subscription->user_data);
+    }
+}
+
+void* mdr_device_playback_subscribe_volume(
+        mdr_device_t* device,
+        void (*update)(uint8_t volume, void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.playback_controller)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return NULL;
+    }
+
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_PLAY_NTFY_PARAM,
+                .extra = MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME,
+                .only_ack = false
+            },
+            mdr_device_playback_subscribe_volume_update,
+            (void (*)()) update,
+            user_data);
+}
+
+int mdr_device_playback_set_volume(
+        mdr_device_t* device,
+        uint8_t volume,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.playback_controller)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_PLAY_SET_PARAM;
+    request_packet.data = (mdr_packet_data_t){
+        .play_set_param = {
+            .inquired_type = MDR_PACKET_PLAY_INQUIRED_TYPE_PLAYBACK_CONTROLLER,
+            .detailed_data_type = MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME,
+            .volume = volume,
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true,
             },
             success_callback_passthrough,
             (void (*)()) success,

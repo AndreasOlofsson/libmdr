@@ -283,6 +283,21 @@ static bool reply_specifier_matches(
             return reply_spec.extra
                     == packet->data.ncasm_ntfy_param.inquired_type;
 
+        case MDR_PACKET_PLAY_GET_PARAM:
+            return true;
+
+        case MDR_PACKET_PLAY_RET_PARAM:
+            return reply_spec.extra
+                    == packet->data.play_ret_param.detailed_data_type;
+
+        case MDR_PACKET_PLAY_SET_PARAM:
+            return reply_spec.extra
+                    == packet->data.play_set_param.detailed_data_type;
+
+        case MDR_PACKET_PLAY_NTFY_PARAM:
+            return reply_spec.extra
+                    == packet->data.play_ntfy_param.detailed_data_type;
+
         case MDR_PACKET_SYSTEM_GET_CAPABILITY:
             return true;
 

@@ -159,6 +159,45 @@ void mdr_packet_free(mdr_packet_t* packet)
         case MDR_PACKET_NCASM_NTFY_PARAM:
             break;
 
+        case MDR_PACKET_PLAY_GET_PARAM:
+            break;
+
+        case MDR_PACKET_PLAY_RET_PARAM:
+            switch (packet->data.play_ret_param.detailed_data_type)
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    break;
+
+                default:
+                    free(packet->data.play_ret_param.string.data);
+                    break;
+            }
+            break;
+
+        case MDR_PACKET_PLAY_SET_PARAM:
+            switch (packet->data.play_set_param.detailed_data_type)
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    break;
+
+                default:
+                    free(packet->data.play_set_param.string.data);
+                    break;
+            }
+            break;
+
+        case MDR_PACKET_PLAY_NTFY_PARAM:
+            switch (packet->data.play_ntfy_param.detailed_data_type)
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    break;
+
+                default:
+                    free(packet->data.play_ntfy_param.string.data);
+                    break;
+            }
+            break;
+
         case MDR_PACKET_SYSTEM_GET_CAPABILITY:
         case MDR_PACKET_SYSTEM_RET_CAPABILITY:
             switch (packet->data.system_ret_capability.inquired_type)
@@ -704,6 +743,171 @@ mdr_packet_t* mdr_packet_from_frame(mdr_frame_t* frame)
                     RETURN_FIXED_LENGTH_PACKET(2
                             + sizeof(mdr_packet_ncasm_param_asm_t));
             }
+
+        case MDR_PACKET_PLAY_GET_PARAM:
+            ASSERT_LEN_AT_LEAST(3);
+            ASSERT_ITH_EQUALS(1,
+                    MDR_PACKET_PLAY_INQUIRED_TYPE_PLAYBACK_CONTROLLER);
+            switch (payload[2])
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ARTIST_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_GENRE_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_PLAYER_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    break;
+
+                default:
+                    INVALID_FRAME;
+            }
+
+            RETURN_FIXED_LENGTH_PACKET(1
+                    + sizeof(mdr_packet_play_get_param_t));
+
+        case MDR_PACKET_PLAY_RET_PARAM:
+            ASSERT_LEN_AT_LEAST(4);
+            ASSERT_ITH_EQUALS(1,
+                    MDR_PACKET_PLAY_INQUIRED_TYPE_PLAYBACK_CONTROLLER);
+            switch (payload[2])
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ARTIST_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_GENRE_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_PLAYER_NAME:
+                {
+                    ASSERT_ITH_IN_RANGE(3,
+                            MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_UNSETTLED,
+                            MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_SETTLED);
+
+                    uint8_t length = payload[4];
+                    if (length > 128) length = 128;
+                    ASSERT_LEN_AT_LEAST(5 + length);
+
+                    ALLOC_PACKET(1 + sizeof(mdr_packet_play_ret_param_t));
+                    COPY_TO_PACKET(5);
+
+                    packet->data.play_ret_param.string.data = malloc(length);
+
+                    if (packet->data.play_ret_param.string.data == NULL)
+                    {
+                        free(packet);
+                        INVALID_FRAME;
+                    }
+
+                    memcpy(packet->data.play_ret_param.string.data,
+                           &payload[5],
+                           length);
+
+                    return packet;
+                }
+
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    ALLOC_PACKET(4);
+                    COPY_TO_PACKET(4);
+                    return packet;
+
+                default:
+                    INVALID_FRAME;
+            }
+            break;
+
+        case MDR_PACKET_PLAY_SET_PARAM:
+            ASSERT_LEN_AT_LEAST(4);
+            ASSERT_ITH_EQUALS(1,
+                    MDR_PACKET_PLAY_INQUIRED_TYPE_PLAYBACK_CONTROLLER);
+            switch (payload[2])
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ARTIST_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_GENRE_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_PLAYER_NAME:
+                {
+                    ASSERT_ITH_IN_RANGE(3,
+                            MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_UNSETTLED,
+                            MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_SETTLED);
+
+                    uint8_t length = payload[4];
+                    if (length > 128) length = 128;
+                    ASSERT_LEN_AT_LEAST(5 + length);
+
+                    ALLOC_PACKET(1 + sizeof(mdr_packet_play_set_param_t));
+                    COPY_TO_PACKET(5);
+
+                    packet->data.play_set_param.string.data = malloc(length);
+
+                    if (packet->data.play_set_param.string.data == NULL)
+                    {
+                        free(packet);
+                        INVALID_FRAME;
+                    }
+
+                    memcpy(packet->data.play_set_param.string.data,
+                           &payload[5],
+                           length);
+
+                    return packet;
+                }
+
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    ALLOC_PACKET(4);
+                    COPY_TO_PACKET(4);
+                    return packet;
+
+                default:
+                    INVALID_FRAME;
+            }
+            break;
+
+        case MDR_PACKET_PLAY_NTFY_PARAM:
+            ASSERT_LEN_AT_LEAST(4);
+            ASSERT_ITH_EQUALS(1,
+                    MDR_PACKET_PLAY_INQUIRED_TYPE_PLAYBACK_CONTROLLER);
+            switch (payload[2])
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ARTIST_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_GENRE_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_PLAYER_NAME:
+                {
+                    ASSERT_ITH_IN_RANGE(3,
+                            MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_UNSETTLED,
+                            MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_SETTLED);
+
+                    uint8_t length = payload[4];
+                    if (length > 128) length = 128;
+                    ASSERT_LEN_AT_LEAST(5 + length);
+
+                    ALLOC_PACKET(1 + sizeof(mdr_packet_play_ntfy_param_t));
+                    COPY_TO_PACKET(5);
+
+                    packet->data.play_ntfy_param.string.data = malloc(length);
+
+                    if (packet->data.play_ntfy_param.string.data == NULL)
+                    {
+                        free(packet);
+                        INVALID_FRAME;
+                    }
+
+                    memcpy(packet->data.play_ntfy_param.string.data,
+                           &payload[5],
+                           length);
+
+                    return packet;
+                }
+
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    ALLOC_PACKET(4);
+                    COPY_TO_PACKET(4);
+                    return packet;
+
+                default:
+                    INVALID_FRAME;
+            }
+            break;
 
         case MDR_PACKET_SYSTEM_GET_CAPABILITY:
             ASSERT_LEN_AT_LEAST(2);
@@ -1324,6 +1528,67 @@ mdr_frame_t* mdr_packet_to_frame(mdr_packet_t* packet)
                 case MDR_PACKET_NCASM_INQUIRED_TYPE_ASM:
                     RETURN_FIXED_LENGTH_FRAME(2
                             + sizeof(mdr_packet_ncasm_param_asm_t));
+            }
+
+        case MDR_PACKET_PLAY_GET_PARAM:
+            RETURN_FIXED_LENGTH_FRAME(1
+                    + sizeof(mdr_packet_play_get_param_t));
+
+        case MDR_PACKET_PLAY_RET_PARAM:
+            switch (packet->data.play_ret_param.detailed_data_type)
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ARTIST_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_GENRE_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_PLAYER_NAME:
+                    ALLOC_FRAME(5 + packet->data.play_ret_param.string.len);
+                    COPY_FRAME(5);
+                    memcpy(&mdr_frame_payload(frame)[5],
+                           packet->data.play_ret_param.string.data,
+                           packet->data.play_ret_param.string.len);
+                    return frame;
+
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    RETURN_FIXED_LENGTH_FRAME(4);
+            }
+
+        case MDR_PACKET_PLAY_SET_PARAM:
+            switch (packet->data.play_set_param.detailed_data_type)
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ARTIST_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_GENRE_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_PLAYER_NAME:
+                    ALLOC_FRAME(5 + packet->data.play_set_param.string.len);
+                    COPY_FRAME(5);
+                    memcpy(&mdr_frame_payload(frame)[5],
+                           packet->data.play_set_param.string.data,
+                           packet->data.play_set_param.string.len);
+                    return frame;
+
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    RETURN_FIXED_LENGTH_FRAME(4);
+            }
+
+        case MDR_PACKET_PLAY_NTFY_PARAM:
+            switch (packet->data.play_ntfy_param.detailed_data_type)
+            {
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ARTIST_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_GENRE_NAME:
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_PLAYER_NAME:
+                    ALLOC_FRAME(5 + packet->data.play_ntfy_param.string.len);
+                    COPY_FRAME(5);
+                    memcpy(&mdr_frame_payload(frame)[5],
+                           packet->data.play_ntfy_param.string.data,
+                           packet->data.play_ntfy_param.string.len);
+                    return frame;
+
+                case MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_VOLUME:
+                    RETURN_FIXED_LENGTH_FRAME(4);
             }
 
         case MDR_PACKET_SYSTEM_GET_CAPABILITY:
