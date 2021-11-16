@@ -1441,7 +1441,8 @@ void mdr_device_get_eq_capabilities_result(
     if (callback_data->user_result_callback != NULL)
     {
         uint8_t num_presets = packet->data.eqebb_ret_capability.eq.num_presets;
-        mdr_packet_eqebb_eq_preset_id_t* presets = malloc(num_presets);
+        mdr_packet_eqebb_eq_preset_id_t* presets
+                = malloc(num_presets * sizeof(mdr_packet_eqebb_eq_preset_id_t));
 
         if (presets == NULL)
         {

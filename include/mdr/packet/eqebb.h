@@ -24,11 +24,10 @@
 #define __MDR_PACKET_EQEBB_H__
 
 #include <stdint.h>
-#define PACKED __attribute__((__packed__))
 
 // Fields
 
-typedef enum PACKED mdr_packet_eqebb_inquired_type
+typedef enum
 {
     MDR_PACKET_EQEBB_INQUIRED_TYPE_PRESET_EQ                 = 0x01,
     // Electro Bass Boster
@@ -37,7 +36,7 @@ typedef enum PACKED mdr_packet_eqebb_inquired_type
 }
 mdr_packet_eqebb_inquired_type_t;
 
-typedef enum PACKED mdr_packet_eqebb_display_language
+typedef enum
 {
     MDR_PACKET_EQEBB_DISPLAY_LANGUAGE_UNDEFINED_LANGUAGE   = 0x00,
     MDR_PACKET_EQEBB_DISPLAY_LANGUAGE_ENGLISH              = 0x01,
@@ -60,7 +59,7 @@ typedef enum PACKED mdr_packet_eqebb_display_language
 }
 mdr_packet_eqebb_display_language_t;
 
-typedef enum PACKED mdr_packet_eqebb_eq_preset_id
+typedef enum
 {
     MDR_PACKET_EQEBB_EQ_PRESET_ID_OFF                      = 0x00,
     MDR_PACKET_EQEBB_EQ_PRESET_ID_ROCK                     = 0x01,
@@ -104,7 +103,7 @@ typedef enum PACKED mdr_packet_eqebb_eq_preset_id
 }
 mdr_packet_eqebb_eq_preset_id_t;
 
-typedef struct PACKED mdr_packet_eqebb_capability_eq_preset_name
+typedef struct
 {
     mdr_packet_eqebb_eq_preset_id_t preset_id;
 
@@ -113,7 +112,7 @@ typedef struct PACKED mdr_packet_eqebb_capability_eq_preset_name
 }
 mdr_packet_eqebb_capability_eq_preset_name_t;
 
-typedef struct PACKED mdr_packet_eqebb_capability_eq
+typedef struct
 {
     uint8_t band_count;
     uint8_t level_steps;
@@ -123,7 +122,7 @@ typedef struct PACKED mdr_packet_eqebb_capability_eq
 }
 mdr_packet_eqebb_capability_eq_t;
 
-typedef struct PACKED mdr_packet_eqebb_capability_ebb
+typedef struct
 {
     uint8_t min_level;
 
@@ -131,7 +130,7 @@ typedef struct PACKED mdr_packet_eqebb_capability_ebb
 }
 mdr_packet_eqebb_capability_ebb_t;
 
-typedef struct PACKED mdr_packet_eqebb_param_eq
+typedef struct
 {
     mdr_packet_eqebb_eq_preset_id_t preset_id;
 
@@ -140,7 +139,7 @@ typedef struct PACKED mdr_packet_eqebb_param_eq
 }
 mdr_packet_eqebb_param_eq_t;
 
-typedef struct PACKED mdr_packet_eqebb_param_ebb
+typedef struct
 {
     uint8_t level;
 }
@@ -148,7 +147,7 @@ mdr_packet_eqebb_param_ebb_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_eqebb_get_capability
+typedef struct
 {
     mdr_packet_eqebb_inquired_type_t inquired_type;
 
@@ -156,11 +155,11 @@ typedef struct PACKED mdr_packet_eqebb_get_capability
 }
 mdr_packet_eqebb_get_capability_t;
 
-typedef struct PACKED mdr_packet_eqebb_ret_capability
+typedef struct
 {
     mdr_packet_eqebb_inquired_type_t inquired_type;
 
-    union PACKED
+    union
     {
         mdr_packet_eqebb_capability_eq_t eq;
 
@@ -169,17 +168,17 @@ typedef struct PACKED mdr_packet_eqebb_ret_capability
 }
 mdr_packet_eqebb_ret_capability_t;
 
-typedef struct PACKED mdr_packet_eqebb_get_param
+typedef struct
 {
     mdr_packet_eqebb_inquired_type_t inquired_type;
 }
 mdr_packet_eqebb_get_param_t;
 
-typedef struct PACKED mdr_packet_eqebb_ret_param
+typedef struct
 {
     mdr_packet_eqebb_inquired_type_t inquired_type;
 
-    union PACKED
+    union
     {
         mdr_packet_eqebb_param_eq_t eq;
 
@@ -188,31 +187,10 @@ typedef struct PACKED mdr_packet_eqebb_ret_param
 }
 mdr_packet_eqebb_ret_param_t;
 
-typedef struct PACKED mdr_packet_eqebb_set_param
-{
-    mdr_packet_eqebb_inquired_type_t inquired_type;
+typedef mdr_packet_eqebb_ret_param_t mdr_packet_eqebb_set_param_t;
+typedef mdr_packet_eqebb_ret_param_t mdr_packet_eqebb_ntfy_param_t;
 
-    union PACKED
-    {
-        mdr_packet_eqebb_param_eq_t eq;
-
-        mdr_packet_eqebb_param_ebb_t ebb;
-    };
-}
-mdr_packet_eqebb_set_param_t;
-
-typedef struct PACKED mdr_packet_eqebb_ntfy_param
-{
-    mdr_packet_eqebb_inquired_type_t inquired_type;
-
-    union PACKED
-    {
-        mdr_packet_eqebb_param_eq_t eq;
-
-        mdr_packet_eqebb_param_ebb_t ebb;
-    };
-}
-mdr_packet_eqebb_ntfy_param_t;
+// Functions
 
 const char* mdr_packet_eqebb_get_preset_name(mdr_packet_eqebb_eq_preset_id_t);
 

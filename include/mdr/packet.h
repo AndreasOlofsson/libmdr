@@ -28,9 +28,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#define PACKED __attribute__((__packed__))
-
-typedef enum PACKED
+typedef enum
 {
     MDR_PACKET_CONNECT_GET_PROTOCOL_INFO        = 0x00,
     MDR_PACKET_CONNECT_RET_PROTOCOL_INFO        = 0x01,
@@ -260,7 +258,7 @@ typedef union PACKED
 }
 mdr_packet_data_t;
 
-typedef struct PACKED
+typedef struct
 {
     mdr_packet_type_t type;
     mdr_packet_data_t data;

@@ -23,15 +23,17 @@
 #ifndef __MDR_PACKET_CONNECT_PROTOCOL_INFO_H__
 #define __MDR_PACKET_CONNECT_PROTOCOL_INFO_H__
 
-#include "mdr/packet.h"
+#include <stdint.h>
 
-typedef struct PACKED mdr_packet_connect_get_protocol_info
+// Packet payloads
+
+typedef struct
 {
     uint8_t fixed_value; // fixed 0x00
 }
 mdr_packet_connect_get_protocol_info_t;
 
-typedef struct PACKED mdr_packet_connect_ret_protocol_info
+typedef struct
 {
     uint8_t fixed_value; // fixed 0x00
     uint8_t version_high;

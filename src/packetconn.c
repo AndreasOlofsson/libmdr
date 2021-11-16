@@ -340,7 +340,7 @@ static bool reply_specifier_matches(
 
         case MDR_PACKET_SYSTEM_NTFY_PARAM:
             return reply_spec.extra
-                    == packet->data.system_set_param.inquired_type;
+                    == packet->data.system_ntfy_param.inquired_type;
     }
 
     return false;

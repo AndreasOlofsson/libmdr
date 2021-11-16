@@ -24,11 +24,10 @@
 #define __MDR_PACKET_SYSTEM_H__
 
 #include <stdint.h>
-#define PACKED __attribute__((__packed__))
 
 // Fields
 
-typedef enum PACKED mdr_packet_system_inquired_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_INQUIRED_TYPE_VIBRATOR            = 0x01,
     MDR_PACKET_SYSTEM_INQUIRED_TYPE_POWER_SAVING_MODE   = 0x02,
@@ -39,26 +38,26 @@ typedef enum PACKED mdr_packet_system_inquired_type
 }
 mdr_packet_system_inquired_type_t;
 
-typedef enum PACKED mdr_packet_system_vibrator_setting_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_VIBRATOR_SETTING_TYPE_ON_OFF = 0x00,
 }
 mdr_packet_system_vibrator_setting_type_t;
 
-typedef enum PACKED mdr_packet_system_vibrator_setting_value
+typedef enum
 {
     MDR_PACKET_SYSTEM_VIBRATOR_SETTING_VALUE_OFF = 0x00,
     MDR_PACKET_SYSTEM_VIBRATOR_SETTING_VALUE_ON  = 0x01,
 }
 mdr_packet_system_vibrator_setting_value_t;
 
-typedef struct PACKED mdr_packet_system_capability_vibrator
+typedef struct
 {
     mdr_packet_system_vibrator_setting_type_t setting_type;
 }
 mdr_packet_system_capability_vibrator_t;
 
-typedef struct PACKED mdr_packet_system_param_vibrator
+typedef struct
 {
     mdr_packet_system_vibrator_setting_type_t setting_type;
 
@@ -66,26 +65,26 @@ typedef struct PACKED mdr_packet_system_param_vibrator
 }
 mdr_packet_system_param_vibrator_t;
 
-typedef enum PACKED mdr_packet_system_power_saving_mode_setting_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_POWER_SAVING_MODE_SETTING_TYPE_ON_OFF = 0x00,
 }
 mdr_packet_system_power_saving_mode_setting_type_t;
 
-typedef enum PACKED mdr_packet_system_power_saving_mode_setting_value
+typedef enum
 {
     MDR_PACKET_SYSTEM_POWER_SAVING_MODE_SETTING_VALUE_OFF = 0x00,
     MDR_PACKET_SYSTEM_POWER_SAVING_MODE_SETTING_VALUE_ON  = 0x01,
 }
 mdr_packet_system_power_saving_mode_setting_value_t;
 
-typedef struct PACKED mdr_packet_system_capability_power_saving_mode
+typedef struct
 {
     mdr_packet_system_power_saving_mode_setting_type_t setting_type;
 }
 mdr_packet_system_capability_power_saving_mode_t;
 
-typedef struct PACKED mdr_packet_system_param_power_saving_mode
+typedef struct
 {
     mdr_packet_system_power_saving_mode_setting_type_t setting_type;
 
@@ -93,26 +92,26 @@ typedef struct PACKED mdr_packet_system_param_power_saving_mode
 }
 mdr_packet_system_param_power_saving_mode_t;
 
-typedef enum PACKED mdr_packet_system_control_by_wearing_setting_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_CONTROL_BY_WEARING_SETTING_TYPE_ON_OFF = 0x00,
 }
 mdr_packet_system_control_by_wearing_setting_type_t;
 
-typedef enum PACKED mdr_packet_system_control_by_wearing_setting_value
+typedef enum
 {
     MDR_PACKET_SYSTEM_CONTROL_BY_WEARING_SETTING_VALUE_OFF = 0x00,
     MDR_PACKET_SYSTEM_CONTROL_BY_WEARING_SETTING_VALUE_ON  = 0x01,
 }
 mdr_packet_system_control_by_wearing_setting_value_t;
 
-typedef struct PACKED mdr_packet_system_capability_control_by_wearing
+typedef struct
 {
     mdr_packet_system_control_by_wearing_setting_type_t setting_type;
 }
 mdr_packet_system_capability_control_by_wearing_t;
 
-typedef struct PACKED mdr_packet_system_param_control_by_wearing
+typedef struct
 {
     mdr_packet_system_control_by_wearing_setting_type_t setting_type;
 
@@ -120,14 +119,14 @@ typedef struct PACKED mdr_packet_system_param_control_by_wearing
 }
 mdr_packet_system_param_control_by_wearing_t;
 
-typedef enum PACKED mdr_packet_system_auto_power_off_parameter_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_AUTO_POWER_OFF_PARAMETER_TYPE_ACTIVE_AND_SELECT_TIME_ID
         = 0x01,
 }
 mdr_packet_system_auto_power_off_parameter_type_t;
 
-typedef enum PACKED mdr_packet_system_auto_power_off_element_id
+typedef enum
 {
     MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_IN_5_MIN               = 0x00,
     MDR_PACKET_SYSTEM_AUTO_POWER_OFF_ELEMENT_ID_POWER_OFF_IN_30_MIN              = 0x01,
@@ -138,7 +137,7 @@ typedef enum PACKED mdr_packet_system_auto_power_off_element_id
 }
 mdr_packet_system_auto_power_off_element_id_t;
 
-typedef struct PACKED mdr_packet_system_capability_auto_power_off
+typedef struct
 {
     uint8_t element_id_count;
 
@@ -146,7 +145,7 @@ typedef struct PACKED mdr_packet_system_capability_auto_power_off
 }
 mdr_packet_system_capability_auto_power_off_t;
 
-typedef struct PACKED mdr_packet_system_param_auto_power_off
+typedef struct
 {
     mdr_packet_system_auto_power_off_parameter_type_t parameter_type;
 
@@ -156,51 +155,51 @@ typedef struct PACKED mdr_packet_system_param_auto_power_off
 }
 mdr_packet_system_param_auto_power_off_t;
 
-typedef enum PACKED mdr_packet_system_smart_talking_mode_setting_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_SETTING_TYPE_ON_OFF = 0x00,
 }
 mdr_packet_system_smart_talking_mode_setting_type_t;
 
-typedef enum PACKED mdr_packet_system_smart_talking_mode_setting_value
+typedef enum
 {
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_SETTING_VALUE_OFF = 0x00,
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_SETTING_VALUE_ON  = 0x01,
 }
 mdr_packet_system_smart_talking_mode_setting_value_t;
 
-typedef enum PACKED mdr_packet_system_smart_talking_mode_preview_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_PREVIEW_TYPE_NOT_SUPPORT = 0x00,
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_PREVIEW_TYPE_SUPPORT     = 0x01,
 }
 mdr_packet_system_smart_talking_mode_preview_type_t;
 
-typedef enum PACKED mdr_packet_system_smart_talking_mode_detail_setting_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_DETAIL_SETTING_TYPE_TYPE_1 = 0x00,
 }
 mdr_packet_system_smart_talking_mode_detail_setting_type_t;
 
-typedef enum PACKED mdr_packet_system_smart_talking_mode_detection_sensitivity_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_DETECTION_SENSITIVITY_TYPE_AUTO_HIGH_LOW = 0x00,
 }
 mdr_packet_system_smart_talking_mode_detection_sensitivity_type_t;
 
-typedef enum PACKED mdr_packet_system_smart_talking_mode_voice_focus_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_VOICE_FOCUS_TYPE_ON_OFF = 0x00,
 }
 mdr_packet_system_smart_talking_mode_voice_focus_type_t;
 
-typedef enum PACKED mdr_packet_system_smart_talking_mode_mode_out_time_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_SMART_TALKING_MODE_MODE_OUT_TIME_TYPE_TYPE_1 = 0x00,
 }
 mdr_packet_system_smart_talking_mode_mode_out_time_type_t;
 
-typedef struct PACKED mdr_packet_system_capability_smart_talking_mode
+typedef struct
 {
     mdr_packet_system_smart_talking_mode_setting_type_t               setting_type;
     mdr_packet_system_smart_talking_mode_preview_type_t               preview_type;
@@ -212,7 +211,7 @@ typedef struct PACKED mdr_packet_system_capability_smart_talking_mode
 }
 mdr_packet_system_capability_smart_talking_mode_t;
 
-typedef struct PACKED mdr_packet_system_param_smart_talking_mode
+typedef struct
 {
     mdr_packet_system_smart_talking_mode_setting_type_t setting_type;
 
@@ -220,7 +219,7 @@ typedef struct PACKED mdr_packet_system_param_smart_talking_mode
 }
 mdr_packet_system_param_smart_talking_mode_t;
 
-typedef enum PACKED mdr_packet_system_assignable_settings_preset
+typedef enum
 {
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_AMBIENT_SOUND_CONTROL = 0x00,
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_VOLUME_CONTROL        = 0x10,
@@ -229,10 +228,11 @@ typedef enum PACKED mdr_packet_system_assignable_settings_preset
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_GOOGLE_ASSISTANT      = 0x31,
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_AMAZON_ALEXA          = 0x32,
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_TENCENT_XIAOWEI       = 0x33,
+    MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_NO_FUNCTION           = 0xff,
 }
 mdr_packet_system_assignable_settings_preset_t;
 
-typedef enum PACKED mdr_packet_system_assignable_settings_key
+typedef enum
 {
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_KEY_LEFT_SIDE_KEY  = 0x00,
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_KEY_RIGHT_SIDE_KEY = 0x01,
@@ -241,14 +241,14 @@ typedef enum PACKED mdr_packet_system_assignable_settings_key
 }
 mdr_packet_system_assignable_settings_key_t;
 
-typedef enum PACKED mdr_packet_system_assignable_settings_key_type
+typedef enum
 {
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_KEYS_TYPE_TOUCH_SENSOR = 0x00,
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_KEYS_TYPE_BUTTON       = 0x01,
 }
 mdr_packet_system_assignable_settings_key_type_t;
 
-typedef enum PACKED mdr_packet_system_assignable_settings_action
+typedef enum
 {
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_ACTION_SINGLE_TAP = 0x00,
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_ACTION_DOUBLE_TAP = 0x01,
@@ -260,7 +260,7 @@ typedef enum PACKED mdr_packet_system_assignable_settings_action
 }
 mdr_packet_system_assignable_settings_action_t;
 
-typedef enum PACKED mdr_packet_system_assignable_settings_function
+typedef enum
 {
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_FUNCTION_NO_FUNCTION = 0x00,
     MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_FUNCTION_NC_ASM_OFF = 0x01,
@@ -281,14 +281,15 @@ typedef enum PACKED mdr_packet_system_assignable_settings_function
 }
 mdr_packet_system_assignable_settings_function_t;
 
-typedef struct PACKED mdr_packet_system_assignable_settings_capability_caption
+typedef struct
 {
     mdr_packet_system_assignable_settings_action_t   action;
     mdr_packet_system_assignable_settings_function_t function;
 }
-mdr_packet_system_assignable_settings_capability_caption_t;
+mdr_packet_system_assignable_settings_capability_action_t;
 
-typedef struct PACKED mdr_packet_system_assignable_settings_capability_preset {
+typedef struct
+{
     mdr_packet_system_assignable_settings_preset_t preset;
 
     // The app has a bug where if `num_capability_actions` if 0, the entire
@@ -296,11 +297,11 @@ typedef struct PACKED mdr_packet_system_assignable_settings_capability_preset {
     // considered to have length 1 (rather then 2 which is correct) when read
     // as part of `mdr_packet_system_assignable_settings_capability_key_t`.
     uint8_t num_capability_actions;
-    mdr_packet_system_assignable_settings_capability_caption_t* capability_actions;
+    mdr_packet_system_assignable_settings_capability_action_t* capability_actions;
 }
 mdr_packet_system_assignable_settings_capability_preset_t;
 
-typedef struct PACKED mdr_packet_system_assignable_settings_capability_key
+typedef struct
 {
     mdr_packet_system_assignable_settings_key_t      key;
     mdr_packet_system_assignable_settings_key_type_t key_type;
@@ -315,14 +316,14 @@ typedef struct PACKED mdr_packet_system_assignable_settings_capability_key
 }
 mdr_packet_system_assignable_settings_capability_key_t;
 
-typedef struct PACKED mdr_packet_system_capability_assignable_settings
+typedef struct
 {
     uint8_t num_capability_keys;
     mdr_packet_system_assignable_settings_capability_key_t* capability_keys;
 }
 mdr_packet_system_capability_assignable_settings_t;
 
-typedef struct PACKED mdr_packet_system_param_assignable_settings
+typedef struct
 {
     uint8_t num_presets;
 
@@ -332,17 +333,17 @@ mdr_packet_system_param_assignable_settings_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_system_get_capability
+typedef struct
 {
     mdr_packet_system_inquired_type_t inquired_type;
 }
 mdr_packet_system_get_capability_t;
 
-typedef struct PACKED mdr_packet_system_ret_capability
+typedef struct
 {
     mdr_packet_system_inquired_type_t inquired_type;
 
-    union PACKED
+    union
     {
         mdr_packet_system_capability_vibrator_t            vibrator;
         mdr_packet_system_capability_power_saving_mode_t   power_saving_mode;
@@ -354,17 +355,17 @@ typedef struct PACKED mdr_packet_system_ret_capability
 }
 mdr_packet_system_ret_capability_t;
 
-typedef struct PACKED mdr_packet_system_get_param
+typedef struct
 {
     mdr_packet_system_inquired_type_t inquired_type;
 }
 mdr_packet_system_get_param_t;
 
-typedef struct PACKED mdr_packet_system_ret_param
+typedef struct
 {
     mdr_packet_system_inquired_type_t inquired_type;
 
-    union PACKED
+    union
     {
         mdr_packet_system_param_vibrator_t            vibrator;
         mdr_packet_system_param_power_saving_mode_t   power_saving_mode;
@@ -376,37 +377,8 @@ typedef struct PACKED mdr_packet_system_ret_param
 }
 mdr_packet_system_ret_param_t;
 
-typedef struct PACKED mdr_packet_system_set_param
-{
-    mdr_packet_system_inquired_type_t inquired_type;
-
-    union PACKED
-    {
-        mdr_packet_system_param_vibrator_t            vibrator;
-        mdr_packet_system_param_power_saving_mode_t   power_saving_mode;
-        mdr_packet_system_param_control_by_wearing_t  control_by_wearing;
-        mdr_packet_system_param_auto_power_off_t      auto_power_off;
-        mdr_packet_system_param_smart_talking_mode_t  smart_talking_mode;
-        mdr_packet_system_param_assignable_settings_t assignable_settings;
-    };
-}
-mdr_packet_system_set_param_t;
-
-typedef struct PACKED mdr_packet_system_ntfy_param
-{
-    mdr_packet_system_inquired_type_t inquired_type;
-
-    union PACKED
-    {
-        mdr_packet_system_param_vibrator_t            vibrator;
-        mdr_packet_system_param_power_saving_mode_t   power_saving_mode;
-        mdr_packet_system_param_control_by_wearing_t  control_by_wearing;
-        mdr_packet_system_param_auto_power_off_t      auto_power_off;
-        mdr_packet_system_param_smart_talking_mode_t  smart_talking_mode;
-        mdr_packet_system_param_assignable_settings_t assignable_settings;
-    };
-}
-mdr_packet_system_ntfy_param_t;
+typedef mdr_packet_system_ret_param_t mdr_packet_system_set_param_t;
+typedef mdr_packet_system_ret_param_t mdr_packet_system_ntfy_param_t;
 
 #endif /* __MDR_PACKET_SYSTEM_H__ */
 

@@ -26,11 +26,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define PACKED __attribute__((__packed__))
-
 // Fields
 
-typedef enum PACKED mdr_packet_support_function_type
+typedef enum
 {
     MDR_PACKET_SUPPORT_FUNCTION_TYPE_NO_USE                                  = 0x00,
     MDR_PACKET_SUPPORT_FUNCTION_TYPE_BATTERY_LEVEL                           = 0x11,
@@ -76,13 +74,13 @@ mdr_packet_support_function_type_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_connect_get_support_function
+typedef struct
 {
     uint8_t fixed_value; // fixed 0x00
 }
 mdr_packet_connect_get_support_function_t;
 
-typedef struct PACKED mdr_packet_connect_ret_support_function
+typedef struct
 {
     uint8_t fixed_value; // fixed 0x00
 

@@ -24,11 +24,10 @@
 #define __MDR_PACKET_COMMON_BATTERY_LEVEL_H__
 
 #include <stdint.h>
-#define PACKED __attribute__((__packed__))
 
 // Fields
 
-typedef enum PACKED mdr_packet_battery_inquired_type
+typedef enum
 {
     MDR_PACKET_BATTERY_INQUIRED_TYPE_BATTERY            = 0x00,
     MDR_PACKET_BATTERY_INQUIRED_TYPE_LEFT_RIGHT_BATTERY = 0x01,
@@ -36,21 +35,21 @@ typedef enum PACKED mdr_packet_battery_inquired_type
 }
 mdr_packet_battery_inquired_type_t;
 
-typedef struct PACKED mdr_packet_battery_status
+typedef struct
 {
     uint8_t level;
     uint8_t charging;
 }
 mdr_packet_battery_status_t;
 
-typedef struct PACKED mdr_packet_battery_status_left_right
+typedef struct
 {
     mdr_packet_battery_status_t left;
     mdr_packet_battery_status_t right;
 }
 mdr_packet_battery_status_left_right_t;
 
-typedef union PACKED mdr_packet_battery_level
+typedef union
 {
     mdr_packet_battery_status_t battery;
 
@@ -62,17 +61,17 @@ mdr_packet_battery_level_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_common_get_battery_level
+typedef struct
 {
     mdr_packet_battery_inquired_type_t inquired_type;
 }
 mdr_packet_common_get_battery_level_t;
 
-typedef struct PACKED mdr_packet_common_ret_battery_level
+typedef struct
 {
     mdr_packet_battery_inquired_type_t inquired_type;
 
-    union PACKED
+    union
     {
         mdr_packet_battery_status_t battery;
 
@@ -83,19 +82,7 @@ typedef struct PACKED mdr_packet_common_ret_battery_level
 }
 mdr_packet_common_ret_battery_level_t;
 
-typedef struct PACKED mdr_packet_common_ntfy_battery_level
-{
-    mdr_packet_battery_inquired_type_t inquired_type;
-
-    union PACKED
-    {
-        mdr_packet_battery_status_t battery;
-
-        mdr_packet_battery_status_left_right_t left_right_battery;
-
-        mdr_packet_battery_status_t cradle_battery;
-    };
-}
-mdr_packet_common_ntfy_battery_level_t;
+typedef mdr_packet_common_ret_battery_level_t
+        mdr_packet_common_ntfy_battery_level_t;
 
 #endif /* __MDR_PACKET_COMMON_BATTERY_LEVEL_H__ */

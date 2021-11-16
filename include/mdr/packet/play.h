@@ -24,17 +24,16 @@
 #define __MDR_PACKET_PLAY_H__
 
 #include <stdint.h>
-#define PACKED __attribute__((__packed__))
 
 // Fields
 
-typedef enum PACKED mdr_packet_play_inquired_type
+typedef enum
 {
     MDR_PACKET_PLAY_INQUIRED_TYPE_PLAYBACK_CONTROLLER = 0x01,
 }
 mdr_packet_play_inquired_type_t;
 
-typedef enum PACKED mdr_packet_play_playback_detailed_data_type
+typedef enum
 {
     MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_TRACK_NAME  = 0x00,
     MDR_PACKET_PLAY_PLAYBACK_DETAILED_DATA_TYPE_ALBUM_NAME  = 0x01,
@@ -45,7 +44,7 @@ typedef enum PACKED mdr_packet_play_playback_detailed_data_type
 }
 mdr_packet_play_playback_detailed_data_type_t;
 
-typedef enum PACKED mdr_packet_play_playback_name_status
+typedef enum
 {
     MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_UNSETTLED = 0x00,
     MDR_PACKET_PLAY_PLAYBACK_NAME_STATUS_NOTHING   = 0x01,
@@ -53,7 +52,7 @@ typedef enum PACKED mdr_packet_play_playback_name_status
 }
 mdr_packet_play_playback_name_status_t;
 
-typedef struct PACKED mdr_packet_play_playback_string
+typedef struct
 {
     mdr_packet_play_playback_name_status_t status;
     uint8_t                                len;
@@ -64,19 +63,19 @@ mdr_packet_play_playback_string_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_play_get_param
+typedef struct
 {
     mdr_packet_play_inquired_type_t               inquired_type;
     mdr_packet_play_playback_detailed_data_type_t detailed_data_type;
 }
 mdr_packet_play_get_param_t;
 
-typedef struct PACKED mdr_packet_play_ret_param
+typedef struct
 {
     mdr_packet_play_inquired_type_t               inquired_type;
     mdr_packet_play_playback_detailed_data_type_t detailed_data_type;
 
-    union PACKED
+    union
     {
         mdr_packet_play_playback_string_t string;
         uint8_t                           volume;
@@ -84,31 +83,8 @@ typedef struct PACKED mdr_packet_play_ret_param
 }
 mdr_packet_play_ret_param_t;
 
-typedef struct PACKED mdr_packet_play_set_param
-{
-    mdr_packet_play_inquired_type_t               inquired_type;
-    mdr_packet_play_playback_detailed_data_type_t detailed_data_type;
-
-    union PACKED
-    {
-        mdr_packet_play_playback_string_t string;
-        uint8_t                           volume;
-    };
-}
-mdr_packet_play_set_param_t;
-
-typedef struct PACKED mdr_packet_play_ntfy_param
-{
-    mdr_packet_play_inquired_type_t               inquired_type;
-    mdr_packet_play_playback_detailed_data_type_t detailed_data_type;
-
-    union PACKED
-    {
-        mdr_packet_play_playback_string_t string;
-        uint8_t                           volume;
-    };
-}
-mdr_packet_play_ntfy_param_t;
+typedef mdr_packet_play_ret_param_t mdr_packet_play_set_param_t;
+typedef mdr_packet_play_ret_param_t mdr_packet_play_ntfy_param_t;
 
 #endif /* __MDR_PACKET_PLAY_H__ */
 

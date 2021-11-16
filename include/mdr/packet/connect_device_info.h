@@ -24,11 +24,10 @@
 #define __MDR_PACKET_CONNECT_DEVICE_INFO_H__
 
 #include <stdint.h>
-#define PACKED __attribute__((__packed__))
 
 // Fields
 
-typedef enum PACKED mdr_packet_device_info_inquired_type
+typedef enum
 {
     MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_MODEL_NAME        = 0x01,
     MDR_PACKET_DEVICE_INFO_INQUIRED_TYPE_FW_VERSION        = 0x02,
@@ -37,7 +36,7 @@ typedef enum PACKED mdr_packet_device_info_inquired_type
 }
 mdr_packet_device_info_inquired_type_t;
 
-typedef enum PACKED mdr_packet_device_info_model_series
+typedef enum
 {
     MDR_PACKET_DEVICE_INFO_MODEL_SERIES_NO_SERIES  = 0x00,
     MDR_PACKET_DEVICE_INFO_MODEL_SERIES_EXTRA_BASS = 0x10,
@@ -48,7 +47,7 @@ typedef enum PACKED mdr_packet_device_info_model_series
 }
 mdr_packet_device_info_model_series_t;
 
-typedef enum PACKED mdr_packet_device_info_model_color
+typedef enum
 {
     MDR_PACKET_DEVICE_INFO_MODEL_COLOR_DEFAULT = 0x00,
     MDR_PACKET_DEVICE_INFO_MODEL_COLOR_BLACK   = 0x01,
@@ -68,7 +67,7 @@ typedef enum PACKED mdr_packet_device_info_model_color
 }
 mdr_packet_device_info_model_color_t;
 
-typedef enum PACKED mdr_packet_device_info_guidance_category
+typedef enum
 {
     MDR_PACKET_DEVICE_INFO_GUIDANCE_CATEGORY_CHANGE_EARPIECE            = 0X00,
     MDR_PACKET_DEVICE_INFO_GUIDANCE_CATEGORY_WEAR_EARPHONE              = 0X10,
@@ -80,28 +79,28 @@ typedef enum PACKED mdr_packet_device_info_guidance_category
 }
 mdr_packet_device_info_guidance_category_t;
 
-typedef struct PACKED mdr_packet_device_info_string
+typedef struct
 {
     uint8_t len;
     uint8_t* string;
 }
 mdr_packet_device_info_string_t;
 
-typedef struct PACKED mdr_packet_device_info_series_and_color
+typedef struct
 {
     mdr_packet_device_info_model_series_t series;
     mdr_packet_device_info_model_color_t color;
 }
 mdr_packet_device_info_series_and_color_t;
 
-typedef struct PACKED mdr_packet_device_info_instruction_guide
+typedef struct
 {
-    uint8_t count;
+    uint8_t num_guidance_categories;
     mdr_packet_device_info_guidance_category_t* guidance_categories;
 }
 mdr_packet_device_info_instruction_guide_t;
 
-typedef union PACKED mdr_packet_device_info
+typedef union
 {
     mdr_packet_device_info_string_t model_name;
 
@@ -115,17 +114,17 @@ mdr_packet_device_info_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_connect_get_device_info
+typedef struct
 {
     mdr_packet_device_info_inquired_type_t inquired_type;
 }
 mdr_packet_connect_get_device_info_t;
 
-typedef struct PACKED mdr_packet_connect_ret_device_info
+typedef struct
 {
     mdr_packet_device_info_inquired_type_t inquired_type;
 
-    union PACKED
+    union
     {
         mdr_packet_device_info_string_t model_name;
 

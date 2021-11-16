@@ -24,11 +24,10 @@
 #define __MDR_PACKET_NCASM_H__
 
 #include <stdint.h>
-#define PACKED __attribute__((__packed__))
 
 // Fields
 
-typedef enum PACKED mdr_packet_ncasm_inquired_type
+typedef enum
 {
     MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING         = 0x01,
     MDR_PACKET_NCASM_INQUIRED_TYPE_NOISE_CANCELLING_AND_ASM = 0x02,
@@ -36,21 +35,21 @@ typedef enum PACKED mdr_packet_ncasm_inquired_type
 }
 mdr_packet_ncasm_inquired_type_t;
 
-typedef enum PACKED mdr_packet_ncasm_nc_setting_type
+typedef enum
 {
     MDR_PACKET_NCASM_NC_SETTING_TYPE_ON_OFF           = 0x00,
     MDR_PACKET_NCASM_NC_SETTING_TYPE_LEVEL_ADJUSTMENT = 0x01,
 }
 mdr_packet_ncasm_nc_setting_type_t;
 
-typedef enum PACKED mdr_packet_ncasm_nc_setting_value
+typedef enum
 {
     MDR_PACKET_NCASM_NC_SETTING_VALUE_OFF = 0x00,
     MDR_PACKET_NCASM_NC_SETTING_VALUE_ON  = 0x01,
 }
 mdr_packet_ncasm_nc_setting_value_t;
 
-typedef enum PACKED mdr_packet_ncasm_ncasm_effect
+typedef enum
 {
     MDR_PACKET_NCASM_NCASM_EFFECT_OFF                     = 0x00,
     MDR_PACKET_NCASM_NCASM_EFFECT_ON                      = 0x01,
@@ -59,7 +58,7 @@ typedef enum PACKED mdr_packet_ncasm_ncasm_effect
 }
 mdr_packet_ncasm_ncasm_effect_t;
 
-typedef enum PACKED mdr_packet_ncasm_ncasm_setting_type
+typedef enum
 {
     MDR_PACKET_NCASM_NCASM_SETTING_TYPE_ON_OFF           = 0x00,
     MDR_PACKET_NCASM_NCASM_SETTING_TYPE_LEVEL_ADJUSTMENT = 0x01,
@@ -67,21 +66,21 @@ typedef enum PACKED mdr_packet_ncasm_ncasm_setting_type
 }
 mdr_packet_ncasm_ncasm_setting_type_t;
 
-typedef enum PACKED mdr_packet_ncasm_asm_setting_type
+typedef enum
 {
     MDR_PACKET_NCASM_ASM_SETTING_TYPE_ON_OFF           = 0x00,
     MDR_PACKET_NCASM_ASM_SETTING_TYPE_LEVEL_ADJUSTMENT = 0x01,
 }
 mdr_packet_ncasm_asm_setting_type_t;
 
-typedef enum PACKED mdr_packet_ncasm_asm_id
+typedef enum
 {
     MDR_PACKET_NCASM_ASM_ID_NORMAL = 0x00,
     MDR_PACKET_NCASM_ASM_ID_VOICE  = 0x01,
 }
 mdr_packet_ncasm_asm_id_t;
 
-typedef struct PACKED mdr_packet_ncasm_param_noise_cancelling
+typedef struct
 {
     mdr_packet_ncasm_nc_setting_type_t nc_setting_type;
 
@@ -89,7 +88,7 @@ typedef struct PACKED mdr_packet_ncasm_param_noise_cancelling
 }
 mdr_packet_ncasm_param_noise_cancelling_t;
 
-typedef struct PACKED mdr_packet_ncasm_param_noise_cancelling_asm
+typedef struct
 {
     mdr_packet_ncasm_ncasm_effect_t       ncasm_effect;
     mdr_packet_ncasm_ncasm_setting_type_t ncasm_setting_type;
@@ -100,7 +99,7 @@ typedef struct PACKED mdr_packet_ncasm_param_noise_cancelling_asm
 }
 mdr_packet_ncasm_param_noise_cancelling_asm_t;
 
-typedef struct PACKED mdr_packet_ncasm_param_asm
+typedef struct
 {
     mdr_packet_ncasm_ncasm_effect_t       ncasm_effect;
     mdr_packet_ncasm_asm_setting_type_t   asm_setting_type;
@@ -111,17 +110,17 @@ mdr_packet_ncasm_param_asm_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_ncasm_get_param
+typedef struct
 {
     mdr_packet_ncasm_inquired_type_t inquired_type;
 }
 mdr_packet_ncasm_get_param_t;
 
-typedef struct PACKED mdr_packet_ncasm_ret_param
+typedef struct
 {
     mdr_packet_ncasm_inquired_type_t inquired_type;
 
-    union PACKED
+    union
     {
         mdr_packet_ncasm_param_noise_cancelling_t     noise_cancelling;
         mdr_packet_ncasm_param_noise_cancelling_asm_t noise_cancelling_asm;
@@ -130,31 +129,8 @@ typedef struct PACKED mdr_packet_ncasm_ret_param
 }
 mdr_packet_ncasm_ret_param_t;
 
-typedef struct PACKED mdr_packet_ncasm_set_param
-{
-    mdr_packet_ncasm_inquired_type_t inquired_type;
-
-    union PACKED
-    {
-        mdr_packet_ncasm_param_noise_cancelling_t     noise_cancelling;
-        mdr_packet_ncasm_param_noise_cancelling_asm_t noise_cancelling_asm;
-        mdr_packet_ncasm_param_asm_t                  ambient_sound_mode;
-    };
-}
-mdr_packet_ncasm_set_param_t;
-
-typedef struct PACKED mdr_packet_ncasm_ntfy_param
-{
-    mdr_packet_ncasm_inquired_type_t inquired_type;
-
-    union PACKED
-    {
-        mdr_packet_ncasm_param_noise_cancelling_t     noise_cancelling;
-        mdr_packet_ncasm_param_noise_cancelling_asm_t noise_cancelling_asm;
-        mdr_packet_ncasm_param_asm_t                  ambient_sound_mode;
-    };
-}
-mdr_packet_ncasm_ntfy_param_t;
+typedef mdr_packet_ncasm_ret_param_t mdr_packet_ncasm_set_param_t;
+typedef mdr_packet_ncasm_ret_param_t mdr_packet_ncasm_ntfy_param_t;
 
 #endif /* __MDR_PACKET_NCASM_H__ */
 

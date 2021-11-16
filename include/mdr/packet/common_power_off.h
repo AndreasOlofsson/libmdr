@@ -24,17 +24,16 @@
 #define __MDR_PACKET_COMMON_POWER_OFF_H__
 
 #include <stdint.h>
-#define PACKED __attribute__((__packed__))
 
 // Fields
 
-typedef enum PACKED mdr_packet_common_power_off_inquired_type
+typedef enum
 {
     MDR_PACKET_COMMON_POWER_OFF_INQUIRED_TYPE_FIXED_VALUE = 0x00,
 }
 mdr_packet_common_power_off_inquired_type_t;
 
-typedef enum PACKED mdr_packet_common_power_off_setting_value
+typedef enum
 {
     MDR_PACKET_COMMON_POWER_OFF_SETTING_VALUE_USER_POWER_OFF = 0x01,
 }
@@ -42,7 +41,7 @@ mdr_packet_common_power_off_setting_value_t;
 
 // Packet payloads
 
-typedef struct PACKED mdr_packet_common_set_power_off
+typedef struct
 {
     mdr_packet_common_power_off_inquired_type_t inquired_type;
 
