@@ -476,6 +476,7 @@ static mdr_packet_t* mdr_packet_system_from_frame(mdr_frame_t* frame)
                             PARSE_ENUM_FIELD(MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_GOOGLE_ASSISTANT)
                             PARSE_ENUM_FIELD(MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_AMAZON_ALEXA)
                             PARSE_ENUM_FIELD(MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_TENCENT_XIAOWEI)
+                            PARSE_ENUM_FIELD(MDR_PACKET_SYSTEM_ASSIGNABLE_SETTINGS_PRESET_NO_FUNCTION)
                         PARSE_ENUM_END
 
                     PARSE_FOR_EACH_END

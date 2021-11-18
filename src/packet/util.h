@@ -141,7 +141,6 @@
 
 #define PARSE_ENUM_END \
         default: \
-            mdr_packet_free(packet); \
             INVALID_FRAME \
     }
 
