@@ -99,7 +99,6 @@
 #define PARSE_BYTE_INTO_VALUE(value) \
     if (offset >= payload_length) \
     { \
-        mdr_packet_free(packet); \
         INVALID_FRAME; \
     } \
     value = payload[offset]; \
@@ -111,7 +110,6 @@
 #define PARSE_BYTES_INTO_VALUE(value, length) \
     if (offset + (length) > payload_length) \
     { \
-        mdr_packet_free(packet); \
         INVALID_FRAME; \
     } \
     (value) = malloc(length); \
