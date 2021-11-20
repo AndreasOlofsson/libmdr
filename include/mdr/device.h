@@ -40,6 +40,7 @@ typedef struct mdr_device_supported_functions
     bool eq_non_customizable;
     bool auto_power_off;
     bool playback_controller;
+    bool assignable_settings;
 }
 mdr_device_supported_functions_t;
 
@@ -519,6 +520,62 @@ int mdr_device_setting_disable_auto_power_off(
 int mdr_device_setting_enable_auto_power_off(
         mdr_device_t*,
         mdr_packet_system_auto_power_off_element_id_t time,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data);
+
+/*
+ * Get the key (buttons) names, their type, default preset and availabe presets.
+ *
+ * This function can only be called if `assignable_settings` is true
+ * in the device's supported function.
+ * If is not supported, -1 is returned and errno is set to
+ * `MDR_E_NOT_SUPPORTED`.
+ *
+ * Returns 0 if the request is successful and -1 on failure.
+ */
+int mdr_device_setting_get_available_button_presets(
+        mdr_device_t*,
+        void (*result)(
+            uint8_t num_keys,
+            mdr_packet_system_assignable_settings_capability_key_t* keys,
+            void* user_data),
+        void (*error)(void* user_data),
+        void* user_data);
+
+/*
+ * Get the active preset for each key, the index of each preset
+ * corresponds to the index of a key in the result of
+ * `mdr_device_setting_get_available_button_presets`.
+ *
+ * This function can only be called if `assignable_settings` is true
+ * in the device's supported function.
+ * If is not supported, -1 is returned and errno is set to
+ * `MDR_E_NOT_SUPPORTED`.
+ *
+ * Returns 0 if the request is successful and -1 on failure.
+ */
+int mdr_device_setting_get_active_button_presets(
+        mdr_device_t*,
+        void (*result)(
+            uint8_t num_presets,
+            mdr_packet_system_assignable_settings_preset_t* presets,
+            void* user_data),
+        void (*error)(void* user_data),
+        void* user_data);
+
+void* mdr_device_setting_subscribe_active_button_presets(
+        mdr_device_t*,
+        void (*update)(
+            uint8_t num_presets,
+            mdr_packet_system_assignable_settings_preset_t* presets,
+            void* user_data),
+        void* user_data);
+
+int mdr_device_setting_set_active_button_presets(
+        mdr_device_t*,
+        uint8_t num_presets,
+        mdr_packet_system_assignable_settings_preset_t* presets,
         void (*success)(void* user_data),
         void (*error)(void* user_data),
         void* user_data);

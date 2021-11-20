@@ -311,6 +311,10 @@ static void mdr_device_init_result_supported_function(mdr_packet_t* packet,
 
             case MDR_PACKET_SUPPORT_FUNCTION_TYPE_PLAYBACK_CONTROLLER:
                 device->supported_functions.playback_controller = true;
+                break;
+
+            case MDR_PACKET_SUPPORT_FUNCTION_TYPE_ASSIGNABLE_SETTINGS:
+                device->supported_functions.assignable_settings = true;
 
             default:
                 break;
@@ -1951,6 +1955,202 @@ int mdr_device_setting_enable_auto_power_off(
             &request_packet,
             (mdr_packetconn_reply_specifier_t){
                 .only_ack = true
+            },
+            success_callback_passthrough,
+            (void (*)()) success,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_setting_get_available_button_presets_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+                packet->data.system_ret_capability.assignable_settings.num_capability_keys,
+                packet->data.system_ret_capability.assignable_settings.capability_keys,
+                callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_setting_get_available_button_presets(
+        mdr_device_t* device,
+        void (*result)(
+            uint8_t num_keys,
+            mdr_packet_system_assignable_settings_capability_key_t* keys,
+            void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.assignable_settings)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_SYSTEM_GET_CAPABILITY;
+
+    request_packet.data = (mdr_packet_data_t){
+        .system_get_capability = {
+            .inquired_type = MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS,
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_SYSTEM_RET_CAPABILITY,
+                .extra = request_packet.data.system_get_capability.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_setting_get_available_button_presets_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+static void mdr_device_setting_get_active_button_presets_result(
+        mdr_packet_t* packet,
+        void* callback_data_ptr)
+{
+    callback_data_t* callback_data = (callback_data_t*) callback_data_ptr;
+
+    if (callback_data->user_result_callback != NULL)
+    {
+        callback_data->user_result_callback(
+                packet->data.system_ret_param.assignable_settings.num_presets,
+                packet->data.system_ret_param.assignable_settings.presets,
+                callback_data->user_data);
+    }
+
+    free(callback_data);
+}
+
+int mdr_device_setting_get_active_button_presets(
+        mdr_device_t* device,
+        void (*result)(
+            uint8_t num_presets,
+            mdr_packet_system_assignable_settings_preset_t* presets,
+            void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.assignable_settings)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_SYSTEM_GET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .system_get_param = {
+            .inquired_type = MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS,
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_SYSTEM_RET_PARAM,
+                .extra = request_packet.data.system_get_param.inquired_type,
+                .only_ack = false,
+            },
+            mdr_device_setting_get_active_button_presets_result,
+            (void (*)()) result,
+            error,
+            user_data);
+
+    return 0;
+}
+
+void mdr_device_setting_subscribe_active_button_presets_update(
+        mdr_packet_t* packet,
+        void* user_data)
+{
+    subscription_t* subscription = user_data;
+
+    if (subscription->user_result_callback != NULL)
+    {
+        subscription->user_result_callback(
+                packet->data.system_ntfy_param.assignable_settings.num_presets,
+                packet->data.system_ntfy_param.assignable_settings.presets,
+                subscription->user_data);
+    }
+}
+
+void* mdr_device_setting_subscribe_active_button_presets(
+        mdr_device_t* device,
+        void (*update)(
+            uint8_t num_presets,
+            mdr_packet_system_assignable_settings_preset_t* presets,
+            void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.assignable_settings)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return NULL;
+    }
+
+    return mdr_device_add_subscription(
+            device,
+            (mdr_packetconn_reply_specifier_t){
+                .packet_type = MDR_PACKET_SYSTEM_NTFY_PARAM,
+                .extra = MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS,
+                .only_ack = false
+            },
+            mdr_device_setting_subscribe_active_button_presets_update,
+            (void (*)()) update,
+            user_data);
+}
+
+int mdr_device_setting_set_active_button_presets(
+        mdr_device_t* device,
+        uint8_t num_presets,
+        mdr_packet_system_assignable_settings_preset_t* presets,
+        void (*success)(void* user_data),
+        void (*error)(void* user_data),
+        void* user_data)
+{
+    if (!device->supported_functions.assignable_settings)
+    {
+        errno = MDR_E_NOT_SUPPORTED;
+        return -1;
+    }
+
+    mdr_packet_t request_packet;
+    request_packet.type = MDR_PACKET_SYSTEM_SET_PARAM;
+
+    request_packet.data = (mdr_packet_data_t){
+        .system_set_param = {
+            .inquired_type = MDR_PACKET_SYSTEM_INQUIRED_TYPE_ASSIGNABLE_SETTINGS,
+            .assignable_settings = {
+                .num_presets = num_presets,
+                .presets = presets,
+            },
+        },
+    };
+
+    mdr_device_make_request(
+            device,
+            &request_packet,
+            (mdr_packetconn_reply_specifier_t){
+                .only_ack = true,
             },
             success_callback_passthrough,
             (void (*)()) success,
