@@ -137,6 +137,11 @@ static mdr_packet_t* mdr_packet_common_from_frame(mdr_frame_t* frame)
                         PARSE_ENUM_FIELD(MDR_PACKET_CONNECTION_STATUS_CONNECTION_STATUS_CONNECTED)
                     PARSE_ENUM_END
 
+                    PARSE_ENUM_INTO_PACKET(left_right.right_status)
+                        PARSE_ENUM_FIELD(MDR_PACKET_CONNECTION_STATUS_CONNECTION_STATUS_NOT_CONNECTED)
+                        PARSE_ENUM_FIELD(MDR_PACKET_CONNECTION_STATUS_CONNECTION_STATUS_CONNECTED)
+                    PARSE_ENUM_END
+
                     break;
             }
 
